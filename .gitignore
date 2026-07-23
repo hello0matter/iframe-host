@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+ops/.env
+config.json
+config.local.json
+config.production.json
+npm-debug.log*
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
