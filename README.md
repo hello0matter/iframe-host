@@ -12,14 +12,21 @@ npm install
 
 # 2. 配置本机 SSH（仅本地，不提交）
 Copy-Item ops\.env.example ops\.env
-# 编辑 ops\.env：IFRAME_SSH_HOST / USER / PASSWORD 或 KEY_FILE
+# 编辑 ops\.env：IFRAME_HOST / IFRAME_SSH_USER / IFRAME_SSH_PASSWORD 或 IFRAME_SSH_KEY_FILE
 
 # 3. 本地检查
 npm run check
 node test-multisite-integration.js
 
-# 4. 部署到生产
+# 4. 部署 iframe-host 到生产
 python deploy-current-fix.py
+
+# 5. 构建并部署 Java 管理前端（源码位于 iframe-host 外部）
+Set-Location D:\tmp\rouyi-ui-admin-vue2-full
+$env:NODE_OPTIONS='--openssl-legacy-provider'
+npm run build:prod
+Set-Location D:\tmp\anjian\pj\st\tmp\miansha\iframe-host
+python ops\deploy\deploy-yudao-admin.py
 ```
 
 ## 目录
