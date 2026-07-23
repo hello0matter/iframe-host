@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Move the Java Yudao API from legacy /index/ to /yudao-api/ safely."""
+"""Move the Java Yudao API off the proxy root and keep its native API path."""
 from __future__ import annotations
 
 import argparse
@@ -14,15 +14,15 @@ CONF = "/www/server/panel/vhost/nginx/extension/50.114.113.121/iframe-host.conf"
 INSPECT = rf'''set -euo pipefail
 printf '=== target ===\n{CONF}\n'
 printf '\n=== current Java route blocks ===\n'
-grep -n -A24 -B3 -E 'location (\^~ )?/(index|yudao-api)' {CONF} || true
+grep -n -A28 -B3 -E 'location (\^~ )?/(index|admin-api|yudao-api)' {CONF} || true
 printf '\n=== all yudao-api definitions ===\n'
 grep -RIn --include='*.conf' -E 'location[[:space:]]+.*yudao-api|/yudao-api' /www/server/panel/vhost/nginx 2>/dev/null || true
 '''
 
 APPLY = r"""set -euo pipefail
 CONF=/www/server/panel/vhost/nginx/extension/50.114.113.121/iframe-host.conf
-if grep -RIn --include='*.conf' -E 'location[[:space:]]+.*yudao-api' /www/server/panel/vhost/nginx 2>/dev/null | grep -v -F "$CONF"; then
-    echo 'A conflicting /yudao-api location exists outside the target file; no changes made.' >&2
+if grep -RIn --include='*.conf' -E 'location[[:space:]]+.*(admin-api|yudao-api)' /www/server/panel/vhost/nginx 2>/dev/null | grep -v -F "$CONF" | grep -v '/backup-'; then
+    echo 'A conflicting Java API location exists outside the target file; no changes made.' >&2
     exit 1
 fi
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -74,9 +74,32 @@ location ^~ /yudao-api/ {
     proxy_read_timeout 86400;
 }
 '''
-if old not in s:
-    raise SystemExit('Expected legacy /index/ Java block was not found; no configuration changed.')
-p.write_text(s.replace(old, new, 1))
+compat = '''# Keep the Java application's native /admin-api/ path available for its
+# existing frontend bundles. This route is still separate from the proxy root.
+location = /admin-api {
+    return 308 /admin-api/;
+}
+
+location ^~ /admin-api/ {
+    proxy_pass http://127.0.0.1:48080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Prefix /admin-api;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_read_timeout 86400;
+}
+'''
+if old in s:
+    s = s.replace(old, new, 1)
+elif 'location ^~ /yudao-api/' not in s:
+    raise SystemExit('Expected Java route was not found; no configuration changed.')
+if 'location ^~ /admin-api/' not in s:
+    s += '\n' + compat
+p.write_text(s)
 PY
 nginx -t
 nginx -s reload
