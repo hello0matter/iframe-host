@@ -93,18 +93,52 @@ location ^~ /admin-api/ {
     proxy_read_timeout 86400;
 }
 '''
+frontend = '''# Serve the existing Yudao frontend without letting it reclaim the proxy root.
+location = /yudao-admin {
+    return 308 /yudao-admin/;
+}
+
+location ^~ /yudao-admin/ {
+    rewrite ^/yudao-admin/?$ /index.html break;
+    rewrite ^/yudao-admin/(.*)$ /$1 break;
+    root /www/wwwroot/50.114.113.121;
+    index index.html;
+    try_files $uri /yudao-admin/index.html;
+
+    # The existing build was produced with a root asset path. Rewrite only
+    # this frontend response so its static files remain inside this namespace.
+    sub_filter_types application/javascript text/css;
+    sub_filter '"/static/' '"/yudao-admin/static/';
+    sub_filter "'/static/" "'/yudao-admin/static/";
+    sub_filter '"/dist/' '"/yudao-admin/dist/';
+    sub_filter "'/dist/" "'/yudao-admin/dist/";
+    sub_filter '"/libs/' '"/yudao-admin/libs/';
+    sub_filter "'/libs/" "'/yudao-admin/libs/";
+    sub_filter '"/favicon.ico"' '"/yudao-admin/favicon.ico"';
+    sub_filter "'/favicon.ico'" "'/yudao-admin/favicon.ico'";
+    sub_filter '__webpack_require__.p = "/"' '__webpack_require__.p = "/yudao-admin/"';
+    sub_filter 'publicPath = "/"' 'publicPath = "/yudao-admin/"';
+    sub_filter '}).VUE_APP_APP_NAME : \\\"/\\\"' '}).VUE_APP_APP_NAME : \\\"/yudao-admin/\\\"';
+    sub_filter_once off;
+}
+'''
 if old in s:
     s = s.replace(old, new, 1)
 elif 'location ^~ /yudao-api/' not in s:
     raise SystemExit('Expected Java route was not found; no configuration changed.')
 if 'location ^~ /admin-api/' not in s:
     s += '\n' + compat
+frontend_marker = '# Serve the existing Yudao frontend without letting it reclaim the proxy root.'
+if frontend_marker in s:
+    s = s[:s.index(frontend_marker)] + frontend
+elif 'location ^~ /yudao-admin/' not in s:
+    s += '\n' + frontend
 p.write_text(s)
 PY
 nginx -t
 nginx -s reload
 printf 'BACKUP=%s\n' "$BACKUP"
-for uri in /yudao-api /yudao-api/; do
+for uri in /yudao-api /yudao-api/ /yudao-admin/ /yudao-admin/static/js/app.js; do
     printf '\n--- %s ---\n' "$uri"
     curl -sS --max-time 20 -H 'Host: 50.114.113.121' -D /tmp/headers -o /tmp/body "http://127.0.0.1$uri"
     grep -Ei '^(HTTP/|content-type:|location:)' /tmp/headers || true

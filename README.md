@@ -40,6 +40,8 @@ python deploy-current-fix.py
 - 管理后台: `https://hacket.top/internal-content-admin/`
 - 追踪端点: `POST /__ih/track`
 - Java API: `/yudao-api/`（不要占用 `/`）
+- Java 管理后台：`/yudao-admin/`
+- 若依原生 API：`/admin-api/`（兼容旧前端构建）
 - 根路径 `/` 保留给 iframe-host 代理站点
 
 默认根站点的上游当前配置为 `https://www.libaisec.com`。如果根路径返回 `504`，先检查服务器到该上游的出站连通性；这与 `/yudao-api/` Java 路由无关。
