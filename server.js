@@ -619,9 +619,12 @@ function applyRules(text, rules) {
 // Rewrite a single URL value (href/src/url() argument)
 function rewriteSingleUrl(u, origin, prefix) {
   const t = u.trim();
-  if (t.startsWith(origin + "/") || t === origin) return prefix + t.slice(origin.length) || "/";
+  if (prefix && (t === prefix || t.startsWith(prefix + "/"))) return u;
+  if (t === origin) return prefix ? `${prefix}/` : "/";
+  if (t.startsWith(origin + "/")) return prefix + t.slice(origin.length) || "/";
   const sr = "//" + new URL(origin).host;
-  if (t.startsWith(sr + "/") || t === sr) return prefix + t.slice(sr.length);
+  if (t === sr) return prefix ? `${prefix}/` : "/";
+  if (t.startsWith(sr + "/")) return prefix + t.slice(sr.length);
   if (t.startsWith("/") && !t.startsWith("//")) return prefix + t;
   return u;
 }
@@ -705,6 +708,20 @@ function rewriteHtml(html, origin, prefix, rules, adminPath, siteId) {
         if(url.startsWith('/')) return prefix + url;
         return url;
       }
+      function prefixResource(node){
+        if(!node || !node.tagName) return node;
+        var tag=String(node.tagName).toLowerCase();
+        if(tag!=='script' && tag!=='link' && tag!=='img' && tag!=='source') return node;
+        ['src','href'].forEach(function(name){
+          var value=node.getAttribute&&node.getAttribute(name);
+          if(value && value.startsWith('/') && !value.startsWith(prefix+'/') && !value.startsWith('/__ih/')) node.setAttribute(name,withPrefix(value));
+        });
+        return node;
+      }
+      var appendChild=Element.prototype.appendChild;
+      Element.prototype.appendChild=function(node){return appendChild.call(this,prefixResource(node));};
+      var insertBefore=Element.prototype.insertBefore;
+      Element.prototype.insertBefore=function(node,ref){return insertBefore.call(this,prefixResource(node),ref);};
       var ofetch=window.fetch;
       if(typeof ofetch==='function'){
         window.fetch=function(input, init){
@@ -823,6 +840,25 @@ function rewriteJs(js, origin, prefix, rules) {
   js = js.replace(new RegExp(`(['"\`])//${eh}(/[^'"\\s\`]*)\\1`, "g"), `$1${prefix}$2$1`);
 
   return js;
+}
+
+function rewriteJson(json, origin, prefix, rules) {
+  function rewriteValue(value) {
+    if (typeof value === "string") {
+      return applyRules(rewriteSingleUrl(value, origin, prefix), rules);
+    }
+    if (Array.isArray(value)) return value.map(rewriteValue);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, rewriteValue(item)]));
+    }
+    return value;
+  }
+
+  try {
+    return JSON.stringify(rewriteValue(JSON.parse(json)));
+  } catch {
+    return applyRules(json, rules);
+  }
 }
 
 function rewriteLocation(loc, origin, prefix) {
@@ -1043,6 +1079,12 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     }
     if (responseContentType.toLowerCase().includes("text/css")) return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteCss(text, origin, prefix, rules), finishAudit);
     if (responseContentType.toLowerCase().includes("javascript") && (rules.length > 0 || prefix)) return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteJs(text, origin, prefix, rules), finishAudit);
+    if (responseContentType.toLowerCase().includes("application/json") && (rules.length > 0 || prefix || requestCapture)) {
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteJson(text, origin, prefix, rules), finishAudit);
+    }
+    if (requestCapture && isTextContentType(responseContentType)) {
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => text, finishAudit);
+    }
 
     const responseCapture = requestCapture ? createBodyCapture(responseContentType, auditMaxBodyBytes) : null;
     if (responseCapture) proxyRes.on("data", chunk => responseCapture.write(chunk));

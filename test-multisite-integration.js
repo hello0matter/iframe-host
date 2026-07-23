@@ -6,6 +6,7 @@ const fs = require("fs");
 const https = require("https");
 const os = require("os");
 const path = require("path");
+const zlib = require("zlib");
 
 const ROOT = __dirname;
 const HOST_DIR = ROOT;
@@ -39,7 +40,9 @@ function createTlsUpstream(port, handler) {
     req.on("end", () => {
       const result = handler({ method: req.method, url: req.url, body: Buffer.concat(chunks) });
       const responseBody = Buffer.isBuffer(result.body) ? result.body : Buffer.from(result.body || "");
-      res.writeHead(result.status || 200, { "content-type": result.contentType || "text/plain", "content-length": responseBody.length });
+      const headers = { "content-type": result.contentType || "text/plain", "content-length": responseBody.length };
+      if (result.contentEncoding) headers["content-encoding"] = result.contentEncoding;
+      res.writeHead(result.status || 200, headers);
       res.end(responseBody);
     });
   });
@@ -116,6 +119,14 @@ async function main() {
     if (request.url === "/page.html") {
       return { contentType: "text/html", body: "<!doctype html><html><body>One</body></html>" };
     }
+    if (request.url === "/config") {
+      const body = JSON.stringify({
+        root: "/",
+        site: `https://127.0.0.1:${upstreamOnePort}`,
+        assets: ["/assets/app.js", "/one/already-prefixed.css"],
+      });
+      return { contentType: "application/json", contentEncoding: "gzip", body: zlib.gzipSync(body) };
+    }
     if (request.url === "/binary") {
       return { contentType: "application/octet-stream", body: Buffer.alloc(8192, 7) };
     }
@@ -169,6 +180,14 @@ async function main() {
   assert.ok(proxiedHtml.text.includes("/__ih/track"), "proxied HTML must post analytics to the reserved public track path");
   assert.ok(proxiedHtml.text.includes("data.consent={optional_tracking:true,precise_location:false,location_status:'not_requested'}"), "proxied HTML must enable anonymous analytics without location permission");
   assert.ok(proxiedHtml.text.includes("withPrefix"), "proxied HTML must rewrite absolute fetch paths under a site prefix");
+  assert.ok(proxiedHtml.text.includes("prefixResource"), "proxied HTML must prefix dynamically inserted resources");
+  const proxiedJson = await request(`http://127.0.0.1:${proxyPort}/one/config`);
+  assert.strictEqual(proxiedJson.response.status, 200);
+  assert.deepStrictEqual(proxiedJson.json, {
+    root: "/one/",
+    site: "/one/",
+    assets: ["/one/assets/app.js", "/one/already-prefixed.css"],
+  });
   const duplicate = await request(apiUrl("/api/sites"), { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ id: "conflict", name: "Conflict", target_url: `https://127.0.0.1:${upstreamTwoPort}/`, proxy_prefix: "/two" }) });
   assert.strictEqual(duplicate.response.status, 400);
 
