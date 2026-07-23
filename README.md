@@ -42,6 +42,8 @@ python deploy-current-fix.py
 - Java API: `/yudao-api/`（不要占用 `/`）
 - 根路径 `/` 保留给 iframe-host 代理站点
 
+默认根站点的上游当前配置为 `https://www.libaisec.com`。如果根路径返回 `504`，先检查服务器到该上游的出站连通性；这与 `/yudao-api/` Java 路由无关。
+
 ## 安全
 
 - **不要**提交 `ops/.env`、`config.json`、`config.production.json` 或任何真实密码

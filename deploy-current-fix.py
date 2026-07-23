@@ -55,7 +55,7 @@ def main() -> int:
             "set -euo pipefail; node --check /opt/iframe-host/server.js; "
             "systemctl restart iframe-host.service; "
             "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do "
-            "curl -sS -o /dev/null --max-time 2 http://127.0.0.1:3030/ && break; sleep 0.5; done; "
+            "curl -sS -o /dev/null --max-time 2 http://127.0.0.1:3030/admin/ && break; sleep 0.5; done; "
             "systemctl is-active iframe-host.service",
         )
         print("deployed")
