@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Keep only the seven newest BaoTa panel archives."""
+import os
+from pathlib import Path
+root=Path('/www/backup/panel')
+if not root.is_dir(): raise SystemExit(0)
+files=sorted((p for p in root.iterdir() if p.is_file() and p.suffix.lower()=='.zip'),key=lambda p:p.stat().st_mtime,reverse=True)
+for path in files[7:]:
+    path.unlink(missing_ok=True)
+print(f'panel_backups_kept={min(len(files),7)} removed={max(len(files)-7,0)}')

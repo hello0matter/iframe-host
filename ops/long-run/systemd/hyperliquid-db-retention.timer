@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Hyperliquid SQLite retention
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

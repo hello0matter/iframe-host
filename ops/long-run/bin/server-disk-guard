@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+free_mb=$(df -Pm / | awk 'NR==2 {print $4}')
+/usr/local/sbin/panel-backup-retention >/dev/null 2>&1 || true
+/usr/local/sbin/iframe-host-audit-retention >/dev/null 2>&1 || true
+if [ "$free_mb" -lt 2048 ]; then
+    logger -p daemon.warning -t server-disk-guard "root filesystem low: ${free_mb}MB free; running safe cleanup"
+    journalctl --vacuum-size=100M >/dev/null 2>&1 || true
+    dnf clean all >/dev/null 2>&1 || yum clean all >/dev/null 2>&1 || true
+    /usr/local/sbin/hyperliquid-db-retention.py >/dev/null 2>&1 || true
+    logrotate /etc/logrotate.conf >/dev/null 2>&1 || true
+fi
+if [ "$free_mb" -lt 1024 ]; then
+    logger -p daemon.crit -t server-disk-guard "CRITICAL root filesystem space: ${free_mb}MB free"
+fi

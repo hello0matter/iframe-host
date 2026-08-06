@@ -1,0 +1,6 @@
+[Unit]
+Description=Check root disk space and run safe bounded cleanup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/server-disk-guard

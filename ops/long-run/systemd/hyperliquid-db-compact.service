@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Hyperliquid SQLite compaction
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hyperliquid-db-compact
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min

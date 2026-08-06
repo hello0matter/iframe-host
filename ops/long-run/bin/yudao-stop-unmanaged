@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+old_pid=$(pgrep -f '^java .* -jar /root/yudao-server.jar( |$)' | head -n 1 || true)
+if [ -z "$old_pid" ]; then
+    exit 0
+fi
+kill -TERM "$old_pid"
+for _ in $(seq 1 120); do
+    if ! kill -0 "$old_pid" 2>/dev/null; then
+        exit 0
+    fi
+    sleep 1
+done
+kill -KILL "$old_pid"

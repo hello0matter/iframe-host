@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Bound iframe-host audit storage by age and allocated bytes."""
+import os
+import time
+
+ROOT = "/etc/iframe-host/audit-logs"
+KEEP_SECONDS = 6 * 60 * 60
+MAX_ALLOCATED_BYTES = 512 * 1024 * 1024
+TMP_KEEP_SECONDS = 60 * 60
+
+if not os.path.isdir(ROOT):
+    raise SystemExit(0)
+
+now = time.time()
+records = []
+allocated = 0
+for site in os.scandir(ROOT):
+    if not site.is_dir(follow_symlinks=False):
+        continue
+    try:
+        files = os.scandir(site.path)
+    except OSError:
+        continue
+    with files:
+        for entry in files:
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            try:
+                stat = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            age = now - stat.st_mtime
+            if entry.name.endswith(".tmp"):
+                if age > TMP_KEEP_SECONDS:
+                    try:
+                        os.unlink(entry.path)
+                    except FileNotFoundError:
+                        pass
+                continue
+            if not entry.name.endswith(".json"):
+                continue
+            blocks = stat.st_blocks * 512
+            if age > KEEP_SECONDS:
+                try:
+                    os.unlink(entry.path)
+                except FileNotFoundError:
+                    pass
+                continue
+            records.append((stat.st_mtime, blocks, entry.path))
+            allocated += blocks
+
+if allocated <= MAX_ALLOCATED_BYTES:
+    raise SystemExit(0)
+
+records.sort()
+for _mtime, blocks, path in records:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    allocated -= blocks
+    if allocated <= MAX_ALLOCATED_BYTES:
+        break

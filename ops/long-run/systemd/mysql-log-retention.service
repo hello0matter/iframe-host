@@ -1,0 +1,10 @@
+[Unit]
+Description=Bound Yudao and CDK database log retention
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mysql-log-retention.py
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min

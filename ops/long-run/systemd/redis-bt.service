@@ -1,0 +1,18 @@
+[Unit]
+Description=BaoTa Redis server
+After=network.target local-fs.target
+Before=yudao-server.service
+
+[Service]
+Type=forking
+User=redis
+Group=redis
+ExecStart=/www/server/redis/src/redis-server /www/server/redis/redis.conf
+PIDFile=/www/server/redis/redis.pid
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=60
+LimitNOFILE=10240
+
+[Install]
+WantedBy=multi-user.target

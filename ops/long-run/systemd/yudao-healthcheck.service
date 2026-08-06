@@ -1,0 +1,7 @@
+[Unit]
+Description=Check Yudao Java health and recover failed service
+After=yudao-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/yudao-healthcheck

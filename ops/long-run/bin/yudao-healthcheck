@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+url=http://127.0.0.1:48080/admin-api/system/tenant/simple-list
+healthy() {
+    code=$(curl -sS --max-time 10 -o /tmp/yudao-health.$$ -w '%{http_code}' "$url" 2>/dev/null || true)
+    [ "$code" = 200 ] && ! grep -q '"code":500' /tmp/yudao-health.$$ 2>/dev/null
+}
+trap 'rm -f /tmp/yudao-health.$$' EXIT
+main_pid=$(systemctl show yudao-server.service -p MainPID --value 2>/dev/null || echo 0)
+if [ "${main_pid:-0}" -gt 0 ] 2>/dev/null; then
+    elapsed=$(ps -o etimes= -p "$main_pid" 2>/dev/null | tr -d ' ' || echo 0)
+    if [ "${elapsed:-0}" -lt 600 ]; then exit 0; fi
+fi
+if healthy; then exit 0; fi
+sleep 10
+if healthy; then exit 0; fi
+free_mb=$(df -Pm / | awk 'NR==2 {print $4}')
+if [ "${free_mb:-0}" -lt 1024 ]; then
+    logger -p daemon.crit -t yudao-healthcheck "health failed but restart skipped: only ${free_mb}MB disk free"
+    exit 1
+fi
+logger -p daemon.warning -t yudao-healthcheck 'health failed twice; restarting yudao-server.service'
+systemctl restart yudao-server.service

@@ -1,0 +1,21 @@
+[Unit]
+Description=Yudao Java server
+After=network.target mysqld.service redis-bt.service
+Requires=mysqld.service redis-bt.service
+
+[Service]
+ExecStartPre=/usr/local/sbin/yudao-stop-unmanaged
+Type=simple
+WorkingDirectory=/root
+ExecStart=/www/server/java/jdk-21.0.2/bin/java -server -Xms512m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/root/heapError -jar /root/yudao-server.jar --spring.profiles.active=dev
+Restart=always
+RestartSec=10
+TimeoutStopSec=120
+SuccessExitStatus=143
+OOMScoreAdjust=-500
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
