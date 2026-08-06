@@ -14,6 +14,18 @@ const ROOT = __dirname;
 const GEOIP_CITY_DB = process.env.GEOIP_CITY_DB || "";
 const geoCache = new Map();
 const GEO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const upstreamHttpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  timeout: 60000,
+});
+const upstreamHttpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  timeout: 60000,
+});
 
 function isPublicIp(ip) {
   if (net.isIP(ip) === 4) {
@@ -339,7 +351,13 @@ const visitorTracking = (() => {
 
 const CONFIG_FILE = path.resolve(ROOT, process.env.CONFIG_FILE || "config.json");
 const ADMIN_PAGE_FILE = path.join(ROOT, "public", "admin.html");
+const FALLBACK_CACHE_FILE = path.resolve(process.env.FALLBACK_CACHE_FILE || "/etc/iframe-host/fallback-cache.json");
+const UPSTREAM_TIMEOUT_MS = Math.max(100, Math.min(Number(process.env.UPSTREAM_TIMEOUT_MS) || 4000, 30000));
+const UPSTREAM_FAILURE_BACKOFF_MS = 30 * 1000;
+const FALLBACK_CACHE_MAX_ENTRY_BYTES = 5 * 1024 * 1024;
+const FALLBACK_CACHE_MAX_TOTAL_BYTES = 48 * 1024 * 1024;
 const TOKENS = new Map();
+const unavailableUpstreams = new Map();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
 const STRIP_RESPONSE = new Set([
@@ -431,9 +449,11 @@ function parseSiteName(value) {
   return name;
 }
 
-function parseAuditProbe(value) {
-  const probe = value && typeof value === "object" ? value : {};
-  return { enabled: probe.enabled === true };
+function parseAuditProbe() {
+  // Request/response body auditing is intentionally hard-disabled. A busy
+  // public proxy can otherwise create several gigabytes of JSON files in a
+  // few days and exhaust the root filesystem, which also stalls MySQL.
+  return { enabled: false };
 }
 
 function normalizeSite(raw, index = 0) {
@@ -620,6 +640,15 @@ function applyRules(text, rules) {
 function rewriteSingleUrl(u, origin, prefix) {
   const t = u.trim();
   if (prefix && (t === prefix || t.startsWith(prefix + "/"))) return u;
+  if (/^(?:https?:)?\/\//i.test(t)) {
+    try {
+      const target = new URL(origin);
+      const candidate = new URL(t, target);
+      if (/^https?:$/i.test(candidate.protocol) && candidate.host === target.host) {
+        return prefix + (candidate.pathname + candidate.search + candidate.hash || "/");
+      }
+    } catch {}
+  }
   if (t === origin) return prefix ? `${prefix}/` : "/";
   if (t.startsWith(origin + "/")) return prefix + t.slice(origin.length) || "/";
   const sr = "//" + new URL(origin).host;
@@ -629,12 +658,23 @@ function rewriteSingleUrl(u, origin, prefix) {
   return u;
 }
 
+function suppressForcedLandingPopups(html) {
+  // Some WordPress themes inject unconditional window.onload popups. In a
+  // proxied fallback page those overlays can hide the entire site indefinitely.
+  return html.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (match, script) => {
+    const opensSystemNotice = /#modal-system-notice/.test(script) && /\.modal\s*\(\s*['"]show['"]\s*\)/.test(script);
+    const opensSignIn = /window\.onload/.test(script) && /\.signin-loader:first/.test(script);
+    return opensSystemNotice || opensSignIn ? "" : match;
+  });
+}
+
 function rewriteHtml(html, origin, prefix, rules, adminPath, siteId) {
   const eo = escapeRe(origin);
   const eh = escapeRe(new URL(origin).host);
 
   // Apply replace_rules FIRST, before URL rewriting, so rules can match original full URLs
   html = applyRules(html, rules);
+  html = suppressForcedLandingPopups(html);
 
   // Remove existing base, inject ours so relative URLs resolve correctly
   html = html.replace(/<base\b[^>]*>/gi, "");
@@ -643,9 +683,12 @@ function rewriteHtml(html, origin, prefix, rules, adminPath, siteId) {
   // Full origin URLs in text/attributes
   html = html.replace(new RegExp(eo + "(/[^\"'<>\\s]*)", "g"), (_, p) => prefix + p);
   html = html.replace(new RegExp(eo + "(?=[\"'\\s<>]|$)", "g"), prefix || "/");
+  html = html.replace(new RegExp("https?:\\/\\/" + eh + "(/[^\"'<>\\s]*)", "gi"), (_, p) => prefix + p);
+  html = html.replace(new RegExp("https?:\\/\\/" + eh + "(?=[\"'\\s<>]|$)", "gi"), prefix || "/");
 
   // Protocol-relative origin
-  html = html.replace(new RegExp("//" + eh + "(/[^\"'<>\\s]*)", "g"), (_, p) => prefix + p);
+  html = html.replace(new RegExp("(^|[^:])//" + eh + "(/[^\"'<>\\s]*)", "gi"), (_, before, p) => before + prefix + p);
+  html = html.replace(new RegExp("(^|[^:])//" + eh + "(?=[\"'\\s<>]|$)", "gi"), (_, before) => before + (prefix || "/"));
 
   // Absolute paths in common attributes — skip paths already carrying the prefix
   if (prefix) {
@@ -862,6 +905,16 @@ function rewriteJson(json, origin, prefix, rules) {
 }
 
 function rewriteLocation(loc, origin, prefix) {
+  if (/^(?:https?:)?\/\//i.test(loc)) {
+    try {
+      const target = new URL(origin);
+      const candidate = new URL(loc, target);
+      if (/^https?:$/i.test(candidate.protocol) && candidate.host === target.host) {
+        const suffix = candidate.pathname + candidate.search + candidate.hash;
+        return (prefix + suffix) || "/";
+      }
+    } catch {}
+  }
   if (loc.startsWith(origin)) return (prefix + loc.slice(origin.length)) || "/";
   const h = new URL(origin).host;
   const sr = "//" + h;
@@ -883,9 +936,9 @@ function bufferAndRewrite(proxyRes, res, outHeaders, rewriteFn, onComplete) {
   body.on("end", () => {
     try {
       const result = Buffer.from(rewriteFn(Buffer.concat(chunks).toString("utf8")), "utf8");
-      if (onComplete) onComplete(result, "rewritten_client_body");
       res.writeHead(proxyRes.statusCode, outHeaders);
       res.end(result);
+      if (onComplete) setImmediate(() => onComplete(result, "rewritten_client_body"));
     } catch {
       if (!res.headersSent) res.writeHead(502).end();
     }
@@ -936,6 +989,7 @@ function createBodyCapture(contentType, maxBytes) {
 
 function createAuditStore() {
   const root = path.resolve(process.env.AUDIT_LOG_DIR || "/etc/iframe-host/audit-logs");
+  const writeQueues = new Map();
   function siteDir(siteId) { return path.join(root, parseSiteId(siteId)); }
   function recordFile(siteId, id) { return path.join(siteDir(siteId), `${parseAuditRecordId(id)}.json`); }
   function ensureDir(siteId) {
@@ -944,14 +998,23 @@ function createAuditStore() {
     try { fs.chmodSync(dir, 0o700); } catch {}
   }
   function write(siteId, record) {
-    try {
-      ensureDir(siteId);
+    const previous = writeQueues.get(siteId) || Promise.resolve();
+    const pending = previous.catch(() => {}).then(async () => {
+      await fs.promises.mkdir(siteDir(siteId), { recursive: true, mode: 0o700 });
       const file = recordFile(siteId, record.id);
       const tmp = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 0o600 });
-      try { fs.chmodSync(tmp, 0o600); } catch {}
-      fs.renameSync(tmp, file);
-    } catch (e) { console.warn("Audit log write failed:", e.message); }
+      await fs.promises.writeFile(tmp, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 0o600 });
+      try { await fs.promises.chmod(tmp, 0o600); } catch {}
+      await fs.promises.rename(tmp, file);
+    });
+    writeQueues.set(siteId, pending);
+    pending.then(
+      () => { if (writeQueues.get(siteId) === pending) writeQueues.delete(siteId); },
+      error => {
+        console.warn("Audit log write failed:", error.message);
+        if (writeQueues.get(siteId) === pending) writeQueues.delete(siteId);
+      },
+    );
   }
   function readAll(siteId) {
     ensureDir(siteId);
@@ -1007,6 +1070,92 @@ function parseAuditRecordId(value) {
 
 const auditStore = createAuditStore();
 
+function createFallbackCache() {
+  let entries = {};
+  let persistTimer = null;
+  try {
+    const source = JSON.parse(fs.readFileSync(FALLBACK_CACHE_FILE, "utf8"));
+    if (source && typeof source.entries === "object" && source.entries) entries = source.entries;
+  } catch {}
+
+  function key(siteId, requestPath) { return `${siteId}:${requestPath}`; }
+  function bodyFromEntry(entry) {
+    if (entry.body_encoding === "base64") return Buffer.from(entry.body, "base64");
+    return Buffer.from(entry.body, "utf8");
+  }
+  function entrySize(entry) {
+    try { return bodyFromEntry(entry).length; } catch { return 0; }
+  }
+  function schedulePersist() {
+    if (persistTimer) return;
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      try {
+        fs.mkdirSync(path.dirname(FALLBACK_CACHE_FILE), { recursive: true });
+        const tempFile = `${FALLBACK_CACHE_FILE}.${process.pid}.new`;
+        fs.writeFileSync(tempFile, JSON.stringify({ version: 2, entries }));
+        fs.renameSync(tempFile, FALLBACK_CACHE_FILE);
+      } catch (error) {
+        console.error(`Fallback cache write failed: ${error.message}`);
+      }
+    }, 200);
+  }
+  function trimToBudget() {
+    let total = Object.values(entries).reduce((sum, entry) => sum + entrySize(entry), 0);
+    if (total <= FALLBACK_CACHE_MAX_TOTAL_BYTES) return;
+    const oldestFirst = Object.entries(entries).sort(([, left], [, right]) => (left.updated_at || 0) - (right.updated_at || 0));
+    for (const [entryKey, entry] of oldestFirst) {
+      delete entries[entryKey];
+      total -= entrySize(entry);
+      if (total <= FALLBACK_CACHE_MAX_TOTAL_BYTES) break;
+    }
+  }
+  function get(siteId, requestPath) {
+    const pathOnly = requestPath.split("?", 1)[0];
+    const entry = entries[key(siteId, requestPath)] || entries[key(siteId, pathOnly)];
+    if (!entry || typeof entry.body !== "string" || typeof entry.content_type !== "string") return null;
+    try { return { ...entry, bodyBuffer: bodyFromEntry(entry) }; } catch { return null; }
+  }
+  function put(siteId, requestPath, contentType, body, contentEncoding = "") {
+    const normalizedType = String(contentType || "");
+    const isCacheable = /^(text\/(html|css)|application\/(json|javascript|x-javascript)|image\/|font\/|application\/(font-woff|x-font-ttf|vnd\.ms-fontobject))/i.test(normalizedType);
+    if (!isCacheable || !Buffer.isBuffer(body) || body.length > FALLBACK_CACHE_MAX_ENTRY_BYTES) return;
+    const normalizedEncoding = /^(gzip|br|deflate)$/i.test(String(contentEncoding || "")) ? String(contentEncoding).toLowerCase() : "";
+    const textBody = !normalizedEncoding && /^(text\/|application\/(json|javascript|x-javascript))/i.test(normalizedType);
+    entries[key(siteId, requestPath)] = {
+      content_type: normalizedType,
+      ...(normalizedEncoding ? { content_encoding: normalizedEncoding } : {}),
+      ...(textBody ? { body: body.toString("utf8") } : { body: body.toString("base64"), body_encoding: "base64" }),
+      updated_at: Date.now(),
+    };
+    trimToBudget();
+    schedulePersist();
+  }
+  return { get, put };
+}
+
+const fallbackCache = createFallbackCache();
+
+function serveFallback(site, req, res, parsed) {
+  if (!["GET", "HEAD"].includes(req.method)) return false;
+  const entry = fallbackCache.get(site.id, parsed.pathname + parsed.search);
+  if (!entry) return false;
+  const isHtml = entry.content_type.toLowerCase().includes("text/html");
+  const body = isHtml && !entry.content_encoding
+    ? Buffer.from(suppressForcedLandingPopups(entry.bodyBuffer.toString("utf8")), "utf8")
+    : entry.bodyBuffer;
+  res.writeHead(200, {
+    "content-type": entry.content_type,
+    "cache-control": isHtml ? "no-store" : "public, max-age=60",
+    "x-iframe-fallback": "stale",
+    "access-control-allow-origin": "*",
+    ...(entry.content_encoding ? { "content-encoding": entry.content_encoding } : {}),
+  });
+  if (req.method === "HEAD") res.end();
+  else res.end(body);
+  return true;
+}
+
 // ── Proxy handler ─────────────────────────────────────────────────────────────
 
 function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath) {
@@ -1025,6 +1174,12 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     if (!HOP_BY_HOP.has(lowerKey) && lowerKey !== "host") fwdHeaders[key] = value;
   }
   fwdHeaders.host = new URL(config.targetOrigin).host;
+  // Some upstreams emit compressed bodies without a usable encoding header after redirects.
+  // Request an identity representation so rewritten text is always safe to serve and cache.
+  for (const key of Object.keys(fwdHeaders)) {
+    if (key.toLowerCase() === "accept-encoding") delete fwdHeaders[key];
+  }
+  fwdHeaders["accept-encoding"] = "identity";
   if (config.rewriteRequestHeaders) {
     if (fwdHeaders.referer && fwdHeaders.referer.includes(req.headers.host)) {
       try {
@@ -1039,12 +1194,31 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
 
   const requestCapture = config.auditProbe.enabled ? createBodyCapture(req.headers["content-type"], auditMaxBodyBytes) : null;
   const startedAt = Date.now();
+  const unavailableUntil = unavailableUpstreams.get(config.targetOrigin) || 0;
+  if (unavailableUntil > startedAt) {
+    if (!serveFallback(config, req, res, parsed)) res.writeHead(503).end("upstream unavailable");
+    return;
+  }
   const upstreamUrl = config.targetBase + parsed.pathname + parsed.search;
   let up;
   try { up = new URL(upstreamUrl); } catch { return res.status(400).end(); }
   const transport = up.protocol === "https:" ? https : http;
+  let upstreamTimer;
+  const failUpstream = (status, message) => {
+    unavailableUpstreams.set(config.targetOrigin, Date.now() + UPSTREAM_FAILURE_BACKOFF_MS);
+    if (!res.headersSent && !serveFallback(config, req, res, parsed)) res.writeHead(status).end(message);
+  };
 
-  const proxyReq = transport.request({ hostname: up.hostname, port: up.port || (up.protocol === "https:" ? 443 : 80), path: up.pathname + up.search, method: req.method, headers: fwdHeaders }, proxyRes => {
+  const proxyReq = transport.request({
+    hostname: up.hostname,
+    port: up.port || (up.protocol === "https:" ? 443 : 80),
+    path: up.pathname + up.search,
+    method: req.method,
+    headers: fwdHeaders,
+    agent: up.protocol === "https:" ? upstreamHttpsAgent : upstreamHttpAgent,
+  }, proxyRes => {
+    clearTimeout(upstreamTimer);
+    unavailableUpstreams.delete(config.targetOrigin);
     const outHeaders = {};
     for (const [key, value] of Object.entries(proxyRes.headers)) {
       const lowerKey = key.toLowerCase();
@@ -1062,6 +1236,7 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     outHeaders["access-control-expose-headers"] = "*";
 
     const responseContentType = proxyRes.headers["content-type"] || "";
+    const cacheFallback = body => fallbackCache.put(config.id, parsed.pathname + parsed.search, responseContentType, body);
     const finishAudit = (body, representation) => {
       if (!requestCapture) return;
       const responseCapture = createBodyCapture(responseContentType, auditMaxBodyBytes);
@@ -1075,33 +1250,69 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     const { targetOrigin: origin, proxyPrefix: prefix, replaceRules: rules } = config;
     if (responseContentType.toLowerCase().includes("text/html")) {
       outHeaders["cache-control"] = "no-store";
-      return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteHtml(text, origin, prefix, rules, adminPath, config.id), finishAudit);
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteHtml(text, origin, prefix, rules, adminPath, config.id), (body, representation) => {
+        cacheFallback(body);
+        finishAudit(body, representation);
+      });
     }
-    if (responseContentType.toLowerCase().includes("text/css")) return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteCss(text, origin, prefix, rules), finishAudit);
-    if (responseContentType.toLowerCase().includes("javascript") && (rules.length > 0 || prefix)) return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteJs(text, origin, prefix, rules), finishAudit);
+    if (responseContentType.toLowerCase().includes("text/css")) return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteCss(text, origin, prefix, rules), (body, representation) => {
+      cacheFallback(body);
+      finishAudit(body, representation);
+    });
+    if (responseContentType.toLowerCase().includes("javascript") && (rules.length > 0 || prefix)) return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteJs(text, origin, prefix, rules), (body, representation) => {
+      cacheFallback(body);
+      finishAudit(body, representation);
+    });
     if (responseContentType.toLowerCase().includes("application/json") && (rules.length > 0 || prefix || requestCapture)) {
-      return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteJson(text, origin, prefix, rules), finishAudit);
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteJson(text, origin, prefix, rules), (body, representation) => {
+        cacheFallback(body);
+        finishAudit(body, representation);
+      });
     }
     if (requestCapture && isTextContentType(responseContentType)) {
       return bufferAndRewrite(proxyRes, res, outHeaders, text => text, finishAudit);
     }
 
     const responseCapture = requestCapture ? createBodyCapture(responseContentType, auditMaxBodyBytes) : null;
-    if (responseCapture) proxyRes.on("data", chunk => responseCapture.write(chunk));
+    const staticCacheChunks = [];
+    let staticCacheBytes = 0;
+    let staticCacheOverflow = false;
+    proxyRes.on("data", chunk => {
+      if (responseCapture) responseCapture.write(chunk);
+      if (!staticCacheOverflow && req.method === "GET" && proxyRes.statusCode === 200) {
+        staticCacheBytes += chunk.length;
+        if (staticCacheBytes > FALLBACK_CACHE_MAX_ENTRY_BYTES) staticCacheOverflow = true;
+        else staticCacheChunks.push(chunk);
+      }
+    });
     proxyRes.on("end", () => {
+      if (!staticCacheOverflow && staticCacheChunks.length) {
+        fallbackCache.put(config.id, parsed.pathname + parsed.search, responseContentType, Buffer.concat(staticCacheChunks), proxyRes.headers["content-encoding"] || "");
+      }
       if (!requestCapture) return;
-      auditStore.write(config.id, {
-        id: crypto.randomUUID(), timestamp: Date.now(), site_id: config.id, duration_ms: Date.now() - startedAt,
-        request: { method: req.method, path: parsed.pathname, query: parsed.search, headers: safeAuditHeaders(req.headers), ...requestCapture.finish() },
-        response: { status: proxyRes.statusCode, headers: safeAuditHeaders(proxyRes.headers), representation: "upstream_stream", ...responseCapture.finish() },
-      });
+      setImmediate(() => auditStore.write(config.id, {
+          id: crypto.randomUUID(), timestamp: Date.now(), site_id: config.id, duration_ms: Date.now() - startedAt,
+          request: { method: req.method, path: parsed.pathname, query: parsed.search, headers: safeAuditHeaders(req.headers), ...requestCapture.finish() },
+          response: { status: proxyRes.statusCode, headers: safeAuditHeaders(proxyRes.headers), representation: "upstream_stream", ...responseCapture.finish() },
+        }));
     });
     res.writeHead(proxyRes.statusCode, outHeaders);
     proxyRes.pipe(res);
   });
 
-  proxyReq.setTimeout(30000, () => { proxyReq.destroy(); if (!res.headersSent) res.writeHead(504).end("timeout"); });
-  proxyReq.on("error", () => { if (!res.headersSent) res.writeHead(502).end("error"); });
+  upstreamTimer = setTimeout(() => {
+    proxyReq.destroy();
+    failUpstream(504, "timeout");
+  }, UPSTREAM_TIMEOUT_MS);
+  proxyReq.setTimeout(UPSTREAM_TIMEOUT_MS, () => {
+    clearTimeout(upstreamTimer);
+    proxyReq.destroy();
+    failUpstream(504, "timeout");
+  });
+  proxyReq.on("error", () => {
+    clearTimeout(upstreamTimer);
+    failUpstream(502, "error");
+  });
   if (!["GET", "HEAD"].includes(req.method)) {
     if (requestCapture) req.on("data", chunk => requestCapture.write(chunk));
     req.pipe(proxyReq);
@@ -1341,7 +1552,7 @@ function main() {
     if (!site || !host || !/^[a-z0-9.-]+$/i.test(host)) return res.status(400).end();
     let up;
     try { up = new URL("https://" + host + rawPath); } catch { return res.status(400).end(); }
-    const extReq = https.request({ hostname: up.hostname, port: 443, path: up.pathname + up.search, method: "GET", headers: { "user-agent": "Mozilla/5.0", "accept": "*/*" } }, extRes => {
+    const extReq = https.request({ hostname: up.hostname, port: 443, path: up.pathname + up.search, method: "GET", headers: { "user-agent": "Mozilla/5.0", "accept": "*/*" }, agent: upstreamHttpsAgent }, extRes => {
       const ct = (extRes.headers["content-type"] || "").toLowerCase();
       if (!ct.includes("css") && !ct.includes("font") && !ct.includes("woff") && !ct.includes("opentype")) return res.status(403).end();
       const outHeaders = { "content-type": ct, "cache-control": "public, max-age=86400", "access-control-allow-origin": "*" };

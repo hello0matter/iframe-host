@@ -18,6 +18,9 @@ Copy-Item ops\.env.example ops\.env
 npm run check
 node test-multisite-integration.js
 
+# 生成源站不可达时使用的 HTML/CSS/图片兜底缓存
+npm run refresh-fallback-cache
+
 # 4. 部署 iframe-host 到生产
 python deploy-current-fix.py
 

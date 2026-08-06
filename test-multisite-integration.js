@@ -21,6 +21,7 @@ const adminPath = path.join(tmp, "public");
 const configPath = path.join(tmp, "config.json");
 const visitorPath = path.join(tmp, "visitors.json");
 const auditPath = path.join(tmp, "audit-logs");
+const fallbackCachePath = path.join(tmp, "fallback-cache.json");
 const proxyPort = 18480 + Math.floor(Math.random() * 1000);
 const upstreamOnePort = proxyPort + 1;
 const upstreamTwoPort = proxyPort + 2;
@@ -28,6 +29,7 @@ const password = "test-password-123";
 let proxy;
 let upstreamOne;
 let upstreamTwo;
+let lastUpstreamOneHeaders = {};
 
 function listen(server, port) {
   return new Promise(resolve => server.listen(port, "127.0.0.1", resolve));
@@ -38,9 +40,9 @@ function createTlsUpstream(port, handler) {
     const chunks = [];
     req.on("data", chunk => chunks.push(chunk));
     req.on("end", () => {
-      const result = handler({ method: req.method, url: req.url, body: Buffer.concat(chunks) });
+      const result = handler({ method: req.method, url: req.url, headers: req.headers, body: Buffer.concat(chunks) });
       const responseBody = Buffer.isBuffer(result.body) ? result.body : Buffer.from(result.body || "");
-      const headers = { "content-type": result.contentType || "text/plain", "content-length": responseBody.length };
+      const headers = { "content-type": result.contentType || "text/plain", "content-length": responseBody.length, ...(result.headers || {}) };
       if (result.contentEncoding) headers["content-encoding"] = result.contentEncoding;
       res.writeHead(result.status || 200, headers);
       res.end(responseBody);
@@ -67,6 +69,11 @@ async function request(url, options = {}) {
   let json = null;
   try { json = JSON.parse(text); } catch {}
   return { response, text, json };
+}
+
+async function requestBuffer(url, options = {}) {
+  const response = await fetch(url, { redirect: "manual", ...options });
+  return { response, body: Buffer.from(await response.arrayBuffer()) };
 }
 
 async function waitForServer(url, getOutput = () => "") {
@@ -114,10 +121,26 @@ async function main() {
     oauth_bypass_paths: [],
     rewrite_request_headers: true,
   }, null, 2));
+  fs.writeFileSync(fallbackCachePath, JSON.stringify({
+    entries: {
+      "default:/cached": { content_type: "text/html; charset=utf-8", body: "<!doctype html><title>Cached site</title><p>stale fallback</p>" },
+      "default:/landing": { content_type: "text/html; charset=utf-8", body: "<!doctype html><script>window.onload=function(){$('.signin-loader:first').click();};</script><script>window.onload=function(){$('#modal-system-notice').modal('show');};</script><p>landing</p>" },
+    },
+  }));
 
   upstreamOne = createTlsUpstream(upstreamOnePort, request => {
+    lastUpstreamOneHeaders = request.headers;
     if (request.url === "/page.html") {
-      return { contentType: "text/html", body: "<!doctype html><html><body>One</body></html>" };
+      return {
+        contentType: "text/html",
+        body: `<!doctype html><html><head><link href="http://127.0.0.1:${upstreamOnePort}/assets/site.css"><link href="//127.0.0.1:${upstreamOnePort}/assets/relative.css"></head><body><img src="http://127.0.0.1:${upstreamOnePort}/assets/logo.png">One<script>window.onload=function(){$('.signin-loader:first').click();};</script><script>window.onload=function(){$('#modal-system-notice').modal('show');};</script></body></html>`,
+      };
+    }
+    if (request.url === "/assets/logo.png") {
+      return { contentType: "image/png", body: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]) };
+    }
+    if (request.url === "/compressed.html") {
+      return { contentType: "text/html", contentEncoding: "gzip", body: zlib.gzipSync("<!doctype html><title>Compressed page</title><p>decoded fallback</p>") };
     }
     if (request.url === "/config") {
       const body = JSON.stringify({
@@ -129,6 +152,9 @@ async function main() {
     }
     if (request.url === "/binary") {
       return { contentType: "application/octet-stream", body: Buffer.alloc(8192, 7) };
+    }
+    if (request.url === "/redirect") {
+      return { status: 302, headers: { location: `http://127.0.0.1:${upstreamOnePort}/next` }, body: "redirect" };
     }
     if (request.url === "/large") {
       return { contentType: "text/plain", body: "x".repeat(1024 * 1024 + 1) };
@@ -144,7 +170,7 @@ async function main() {
   await listen(upstreamTwo.server, upstreamTwo.port);
   proxy = spawn(process.execPath, ["server.js"], {
     cwd: tmp,
-    env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: "0", CONFIG_FILE: configPath, VISITOR_DATA_FILE: visitorPath, AUDIT_LOG_DIR: auditPath },
+    env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: "0", CONFIG_FILE: configPath, VISITOR_DATA_FILE: visitorPath, AUDIT_LOG_DIR: auditPath, FALLBACK_CACHE_FILE: fallbackCachePath, UPSTREAM_TIMEOUT_MS: "100" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let serverOutput = "";
@@ -181,6 +207,21 @@ async function main() {
   assert.ok(proxiedHtml.text.includes("data.consent={optional_tracking:true,precise_location:false,location_status:'not_requested'}"), "proxied HTML must enable anonymous analytics without location permission");
   assert.ok(proxiedHtml.text.includes("withPrefix"), "proxied HTML must rewrite absolute fetch paths under a site prefix");
   assert.ok(proxiedHtml.text.includes("prefixResource"), "proxied HTML must prefix dynamically inserted resources");
+  assert.ok(!proxiedHtml.text.includes("#modal-system-notice"), "proxied HTML must not force a system-notice overlay");
+  assert.ok(!proxiedHtml.text.includes(".signin-loader:first"), "proxied HTML must not force a sign-in overlay");
+  assert.ok(proxiedHtml.text.includes("/one/assets/site.css"), "http origin assets must be rewritten under a site prefix");
+  assert.ok(proxiedHtml.text.includes("/one/assets/relative.css"), "protocol-relative assets must be rewritten under a site prefix");
+  assert.ok(!proxiedHtml.text.includes("http:/one/"), "origin rewriting must not produce malformed http:/ URLs");
+  assert.strictEqual(lastUpstreamOneHeaders["accept-encoding"], "identity", "upstream text must be requested without compression");
+  const proxiedImage = await requestBuffer(`http://127.0.0.1:${proxyPort}/one/assets/logo.png`);
+  assert.strictEqual(proxiedImage.response.status, 200);
+  assert.deepStrictEqual(proxiedImage.body, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const compressedPage = await request(`http://127.0.0.1:${proxyPort}/one/compressed.html`);
+  assert.strictEqual(compressedPage.response.status, 200);
+  assert.ok(compressedPage.text.includes("decoded fallback"));
+  const proxiedRedirect = await request(`http://127.0.0.1:${proxyPort}/one/redirect`);
+  assert.strictEqual(proxiedRedirect.response.status, 302);
+  assert.strictEqual(proxiedRedirect.response.headers.get("location"), "/one/next");
   const proxiedJson = await request(`http://127.0.0.1:${proxyPort}/one/config`);
   assert.strictEqual(proxiedJson.response.status, 200);
   assert.deepStrictEqual(proxiedJson.json, {
@@ -198,28 +239,15 @@ async function main() {
 
   const beforeAudit = await api("/api/sites/default/audit-logs", token);
   assert.strictEqual(beforeAudit.total, 0);
-  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ audit_probe: { enabled: true } }) });
+  const auditUpdate = await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ audit_probe: { enabled: true } }) });
+  assert.strictEqual(auditUpdate.site.audit_probe.enabled, false);
   const submitted = await request(`http://127.0.0.1:${proxyPort}/one/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: "audit-body" }) });
   assert.strictEqual(submitted.response.status, 201);
   assert.strictEqual(submitted.json.body, '{"secret":"audit-body"}');
   await request(`http://127.0.0.1:${proxyPort}/one/large`);
   await request(`http://127.0.0.1:${proxyPort}/one/binary`);
-
-  const auditList = await api("/api/sites/default/audit-logs?limit=20", token);
-  assert.strictEqual(auditList.total, 3);
-  assert.ok(auditList.data.every(row => row.request.body === undefined && row.response.body === undefined));
-  const submitAudit = auditList.data.find(row => row.request.path === "/submit");
-  const largeAudit = auditList.data.find(row => row.request.path === "/large");
-  const binaryAudit = auditList.data.find(row => row.request.path === "/binary");
-  assert.ok(submitAudit && largeAudit && binaryAudit);
-  const detail = await api(`/api/sites/default/audit-logs/${submitAudit.id}`, token);
-  assert.strictEqual(detail.data.request.body, '{"secret":"audit-body"}');
-  assert.ok(detail.data.response.body.includes("audit-body"));
-  const largeDetail = await api(`/api/sites/default/audit-logs/${largeAudit.id}`, token);
-  assert.strictEqual(largeDetail.data.response.truncated, true);
-  const binaryDetail = await api(`/api/sites/default/audit-logs/${binaryAudit.id}`, token);
-  assert.strictEqual(binaryDetail.data.response.truncated, true);
-  assert.ok(binaryDetail.data.response.sample_base64);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.strictEqual((await api("/api/sites/default/audit-logs?limit=20", token)).total, 0);
 
   const tracked = await request(`http://127.0.0.1:${proxyPort}/__ih/track`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ site_id: "two", type: "pageview", page: "/welcome", data: { fingerprint: "site-two-visitor" } }) });
   assert.strictEqual(tracked.response.status, 200, tracked.text);
@@ -231,8 +259,31 @@ async function main() {
   const badClear = await request(apiUrl("/api/sites/default/audit-logs"), { method: "DELETE", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ confirm: "CLEAR no" }) });
   assert.strictEqual(badClear.response.status, 400);
   const cleared = await api("/api/sites/default/audit-logs", token, { method: "DELETE", body: JSON.stringify({ confirm: "CLEAR default" }) });
-  assert.strictEqual(cleared.removed, 3);
+  assert.strictEqual(cleared.removed, 0);
   assert.strictEqual((await api("/api/sites/default/audit-logs", token)).total, 0);
+
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ target_url: "https://127.0.0.1:1/" }) });
+  const cached = await request(`http://127.0.0.1:${proxyPort}/one/cached`);
+  assert.strictEqual(cached.response.status, 200);
+  assert.strictEqual(cached.response.headers.get("x-iframe-fallback"), "stale");
+  assert.ok(cached.text.includes("stale fallback"));
+  const cachedWithQuery = await request(`http://127.0.0.1:${proxyPort}/one/cached?refresh=1`);
+  assert.strictEqual(cachedWithQuery.response.status, 200);
+  assert.ok(cachedWithQuery.text.includes("stale fallback"));
+  const cachedLanding = await request(`http://127.0.0.1:${proxyPort}/one/landing`);
+  assert.strictEqual(cachedLanding.response.status, 200);
+  assert.strictEqual(cachedLanding.response.headers.get("x-iframe-fallback"), "stale");
+  assert.ok(!cachedLanding.text.includes("#modal-system-notice"), "fallback HTML must not force a system-notice overlay");
+  assert.ok(!cachedLanding.text.includes(".signin-loader:first"), "fallback HTML must not force a sign-in overlay");
+  const staleImage = await requestBuffer(`http://127.0.0.1:${proxyPort}/one/assets/logo.png`);
+  assert.strictEqual(staleImage.response.status, 200);
+  assert.strictEqual(staleImage.response.headers.get("x-iframe-fallback"), "stale");
+  assert.strictEqual(staleImage.response.headers.get("content-type"), "image/png");
+  assert.deepStrictEqual(staleImage.body, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const staleCompressedPage = await request(`http://127.0.0.1:${proxyPort}/one/compressed.html`);
+  assert.strictEqual(staleCompressedPage.response.status, 200);
+  assert.strictEqual(staleCompressedPage.response.headers.get("content-encoding"), null);
+  assert.ok(staleCompressedPage.text.includes("decoded fallback"));
 
   const disabled = await api("/api/sites/two", token, { method: "PUT", body: JSON.stringify({ enabled: false }) });
   assert.strictEqual(disabled.site.enabled, false);

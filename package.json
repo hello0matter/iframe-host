@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node check-config.js config.example.json",
+    "check": "node --check server.js && node --check refresh-fallback-cache.js && node check-config.js config.example.json",
+    "refresh-fallback-cache": "node refresh-fallback-cache.js",
     "package": "powershell -ExecutionPolicy Bypass -File ./package-deploy.ps1"
   },
   "dependencies": {

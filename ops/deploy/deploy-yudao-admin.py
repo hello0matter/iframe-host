@@ -34,6 +34,7 @@ location ^~ /yudao-admin/ {
 def default_dist() -> Path:
     # The official frontend is kept beside iframe-host, not nested in it.
     candidates = (
+        Path(r"D:\study\tmp\yudao-ui-admin-vue2\dist"),
         Path(r"D:\tmp\rouyi-ui-admin-vue2-full\dist"),
         Path(__file__).resolve().parents[3] / "rouyi-ui-admin-vue2-full" / "dist",
     )
@@ -134,6 +135,7 @@ def deploy(dist: Path) -> None:
                         "fi",
                         "nginx -s reload",
                         f"test -s {shlex.quote(REMOTE_LIVE + '/index.html')}",
+                        f"ls -1dt {shlex.quote(REMOTE_BACKUPS)}/yudao-admin-* 2>/dev/null | tail -n +3 | xargs -r rm -rf --",
                         f"printf 'BACKUP=%s\\n' {shlex.quote(backup)}",
                     ],
                 ),
