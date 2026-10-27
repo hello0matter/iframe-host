@@ -240,14 +240,19 @@ async function main() {
   const beforeAudit = await api("/api/sites/default/audit-logs", token);
   assert.strictEqual(beforeAudit.total, 0);
   const auditUpdate = await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ audit_probe: { enabled: true } }) });
-  assert.strictEqual(auditUpdate.site.audit_probe.enabled, false);
+  assert.strictEqual(auditUpdate.site.audit_probe.enabled, true);
   const submitted = await request(`http://127.0.0.1:${proxyPort}/one/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: "audit-body" }) });
   assert.strictEqual(submitted.response.status, 201);
   assert.strictEqual(submitted.json.body, '{"secret":"audit-body"}');
   await request(`http://127.0.0.1:${proxyPort}/one/large`);
   await request(`http://127.0.0.1:${proxyPort}/one/binary`);
-  await new Promise(resolve => setTimeout(resolve, 100));
-  assert.strictEqual((await api("/api/sites/default/audit-logs?limit=20", token)).total, 0);
+  await new Promise(resolve => setTimeout(resolve, 800));
+  const audited = await api("/api/sites/default/audit-logs?limit=20", token);
+  assert.strictEqual(audited.total, 3);
+  const submitRow = audited.data.find(row => row.request.path === "/submit");
+  assert.ok(submitRow, "submit audit record missing");
+  const detail = await api(`/api/sites/default/audit-logs/${submitRow.id}`, token);
+  assert.ok(detail.data.request.body.includes("audit-body"));
 
   const tracked = await request(`http://127.0.0.1:${proxyPort}/__ih/track`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ site_id: "two", type: "pageview", page: "/welcome", data: { fingerprint: "site-two-visitor" } }) });
   assert.strictEqual(tracked.response.status, 200, tracked.text);
@@ -259,7 +264,7 @@ async function main() {
   const badClear = await request(apiUrl("/api/sites/default/audit-logs"), { method: "DELETE", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ confirm: "CLEAR no" }) });
   assert.strictEqual(badClear.response.status, 400);
   const cleared = await api("/api/sites/default/audit-logs", token, { method: "DELETE", body: JSON.stringify({ confirm: "CLEAR default" }) });
-  assert.strictEqual(cleared.removed, 0);
+  assert.strictEqual(cleared.removed, 3);
   assert.strictEqual((await api("/api/sites/default/audit-logs", token)).total, 0);
 
   await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ target_url: "https://127.0.0.1:1/" }) });

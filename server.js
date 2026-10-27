@@ -449,11 +449,11 @@ function parseSiteName(value) {
   return name;
 }
 
-function parseAuditProbe() {
-  // Request/response body auditing is intentionally hard-disabled. A busy
-  // public proxy can otherwise create several gigabytes of JSON files in a
-  // few days and exhaust the root filesystem, which also stalls MySQL.
-  return { enabled: false };
+function parseAuditProbe(source) {
+  // Opt-in only. createAuditStore prunes old files so enabling this cannot
+  // fill the disk the way unbounded capture did.
+  const enabled = !!(source && typeof source === "object" && source.enabled === true);
+  return { enabled };
 }
 
 function normalizeSite(raw, index = 0) {
@@ -997,6 +997,25 @@ function createAuditStore() {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     try { fs.chmodSync(dir, 0o700); } catch {}
   }
+async function pruneSite(siteId) {
+    const dir = siteDir(siteId);
+    const names = (await fs.promises.readdir(dir)).filter(name => /^[a-f0-9-]{36}[.]json$/i.test(name));
+    const stats = [];
+    for (const name of names) {
+      const full = path.join(dir, name);
+      const stat = await fs.promises.stat(full);
+      stats.push({ full, mtime: stat.mtimeMs, size: stat.size });
+    }
+    stats.sort((a, b) => a.mtime - b.mtime);
+    let total = stats.reduce((sum, item) => sum + item.size, 0);
+    const maxRecords = 300;
+    const maxBytes = 64 * 1024 * 1024;
+    while (stats.length && (stats.length > maxRecords || total > maxBytes)) {
+      const oldest = stats.shift();
+      await fs.promises.unlink(oldest.full).catch(() => {});
+      total -= oldest.size;
+    }
+  }
   function write(siteId, record) {
     const previous = writeQueues.get(siteId) || Promise.resolve();
     const pending = previous.catch(() => {}).then(async () => {
@@ -1006,6 +1025,7 @@ function createAuditStore() {
       await fs.promises.writeFile(tmp, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 0o600 });
       try { await fs.promises.chmod(tmp, 0o600); } catch {}
       await fs.promises.rename(tmp, file);
+      await pruneSite(siteId);
     });
     writeQueues.set(siteId, pending);
     pending.then(
