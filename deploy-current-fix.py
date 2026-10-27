@@ -63,7 +63,12 @@ def main() -> int:
         sftp.close()
         must_run(
             client,
-            "set -euo pipefail; node --check /opt/iframe-host/server.js; "
+            "set -euo pipefail; "
+            "install -d -o iframehost -g iframehost -m 750 /etc/iframe-host /var/lib/iframe-host; "
+            "chown iframehost:iframehost /etc/iframe-host; "
+            "if [ -f /etc/iframe-host/config.production.json ]; then chown iframehost:iframehost /etc/iframe-host/config.production.json; chmod 640 /etc/iframe-host/config.production.json; fi; "
+            "if [ -f /etc/iframe-host/fallback-cache.json ]; then chown iframehost:iframehost /etc/iframe-host/fallback-cache.json; chmod 640 /etc/iframe-host/fallback-cache.json; fi; "
+            "node --check /opt/iframe-host/server.js; "
             "systemctl restart iframe-host.service; "
             "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do "
             "curl -sS -o /dev/null --max-time 2 http://127.0.0.1:3030/admin/ && break; sleep 0.5; done; "
