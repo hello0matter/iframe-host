@@ -48,6 +48,18 @@
 - 脚本需同步执行，返回字符串，或 `{ status, headers, body, content_type }`；默认超时 1000ms，可配置 50–5000ms。
 - 拦截脚本属于管理员可信代码，仅在明确需要替换上游响应时开启；关闭开关后立即恢复为正常代理。
 
+## 站点响应键值脚本
+
+- 每个站点可在「编辑站点 → Response value scripts / 响应键值脚本」中单独添加多条规则，规则按顺序执行；每条规则都可以独立启用或关闭。
+- 规则按上游响应 URL 与请求路径匹配（普通文本或正则，与 URL 拦截脚本使用同一套匹配方式）。只有命中的 URL 才会执行对应脚本，未命中的页面完全不受影响。
+- 取值位置 `target` 支持四种：`json`（JSON 正文键路径）、`header`（响应头）、`form`（`application/x-www-form-urlencoded` 表单字段）和 `text`（正文正则）。
+- JSON 键路径支持点号和数组下标，例如 `data.token`、`items[0].price`；`text` 的键是正则，存在第一个捕获组时替换捕获组内容，否则替换整个匹配。
+- 脚本中可直接使用：`value`（当前取到的值）、`key`（当前键或正则）、`request`（方法、路径、查询串、URL、请求头、cookies）、`response`（状态码、上游响应头）、`site` 和 `console.log`。
+- 返回值写回原位置：返回字符串或数字会转换为字符串；返回 `undefined` 表示保持原值；`header` / `form` 返回 `null` 会删除该键；JSON 返回 `null` 会写入 `null`。
+- 脚本同步执行，默认超时 1000ms，可配置 50–5000ms。脚本异常只记录日志并保持原值，不会中断正常代理。
+- 为防止破坏响应，`content-length`、`transfer-encoding`、`connection`、`keep-alive` 不会被规则改写，`set-cookie` 数组也不会被改写。
+- 命中响应正文规则时不会写入 fallback 预热缓存，避免把改写后的内容缓存成上游原始响应；关闭站点或删除规则后立即恢复原行为。
+
 ## 本机 SSH 配置
 
 ```powershell

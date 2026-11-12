@@ -632,6 +632,202 @@ async function handleIntercept(site, req, res, parsed, upstreamUrl) {
   sendInterceptResponse(site, rule, result, res);
 }
 
+const RESPONSE_TARGETS = new Set(["json", "header", "form", "text"]);
+
+function parseResponseRules(value) {
+  if (!value || !Array.isArray(value)) return [];
+  return value.map((raw, index) => {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const enabled = source.enabled !== false;
+    const urlPattern = typeof source.url_pattern === "string" ? source.url_pattern.trim() : "";
+    const matchMode = source.match_mode === "literal" ? "literal" : "regex";
+    const target = RESPONSE_TARGETS.has(source.target) ? source.target : "json";
+    const key = typeof source.key === "string" ? source.key : "";
+    const code = typeof source.code === "string" ? source.code : "";
+    const timeoutMs = Math.max(50, Math.min(Number(source.timeout_ms) || 1000, 5000));
+    if (enabled) {
+      if (!urlPattern) throw new Error(`response_rules[${index}]: url_pattern is required when enabled`);
+      if (!key) throw new Error(`response_rules[${index}]: key is required when enabled`);
+      if (!code.trim()) throw new Error(`response_rules[${index}]: code is required when enabled`);
+      if (matchMode === "regex") {
+        try { new RegExp(urlPattern); } catch (e) {
+          throw new Error(`response_rules[${index}]: invalid url regex — ${e.message}`);
+        }
+      }
+      if (target === "text") {
+        try { new RegExp(key); } catch (e) {
+          throw new Error(`response_rules[${index}]: invalid text regex — ${e.message}`);
+        }
+      }
+    }
+    return { enabled, urlPattern, matchMode, target, key, code, timeoutMs };
+  });
+}
+
+function serializeResponseRules(rules) {
+  return (rules || []).map(rule => ({
+    enabled: rule.enabled,
+    url_pattern: rule.urlPattern,
+    match_mode: rule.matchMode,
+    target: rule.target,
+    key: rule.key,
+    code: rule.code,
+    timeout_ms: rule.timeoutMs,
+  }));
+}
+
+function splitJsonPath(path) {
+  return String(path).replace(/\[(\d+)\]/g, ".$1").split(".").filter(part => part !== "");
+}
+
+function getJsonPath(root, path) {
+  let current = root;
+  for (const part of splitJsonPath(path)) {
+    if (current === null || current === undefined) return undefined;
+    if (typeof current !== "object") return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function setJsonPath(root, path, value) {
+  const parts = splitJsonPath(path);
+  if (!parts.length) return false;
+  let current = root;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const part = parts[i];
+    const next = parts[i + 1];
+    if (current[part] === null || typeof current[part] !== "object") {
+      current[part] = /^\d+$/.test(next) ? [] : {};
+    }
+    current = current[part];
+  }
+  current[parts[parts.length - 1]] = value;
+  return true;
+}
+
+function buildScriptRequest(req, parsed, upstreamUrl) {
+  return {
+    method: req.method,
+    url: upstreamUrl,
+    path: parsed.pathname,
+    query: parsed.search,
+    headers: { ...req.headers },
+    cookies: parseCookieHeader(req.headers.cookie),
+  };
+}
+
+function runResponseValueScript(site, rule, value, context) {
+  const sandbox = {
+    value,
+    key: rule.key,
+    request: context.request,
+    response: context.response,
+    site: {
+      id: site.id,
+      name: site.name,
+      target_url: site.targetBase,
+      proxy_prefix: site.proxyPrefix,
+    },
+    console: { log: (...args) => console.log(`[response:${site.id}]`, ...args) },
+  };
+  const script = new vm.Script(`(function(){ "use strict";\n${rule.code}\n})()`, {
+    filename: `response-${site.id}-${rule.target}.js`,
+  });
+  return script.runInNewContext(sandbox, {
+    timeout: rule.timeoutMs,
+    codeGeneration: { strings: false, wasm: false },
+  });
+}
+
+function applyResponseHeaderRules(outHeaders, upstreamHeaders, rules, site, context) {
+  for (const rule of rules) {
+    const lower = rule.key.toLowerCase();
+    if (["content-length", "transfer-encoding", "connection", "keep-alive"].includes(lower)) continue;
+    const source = upstreamHeaders[lower];
+    if (Array.isArray(source)) continue;
+    const current = source === undefined ? undefined : String(source);
+    let value;
+    try {
+      value = runResponseValueScript(site, rule, current === undefined ? "" : current, context);
+    } catch (e) {
+      console.error(`[response] site=${site.id} header rule error: ${e.message}`);
+      continue;
+    }
+    if (value === undefined) continue;
+    const outputKey = Object.keys(outHeaders).find(key => key.toLowerCase() === lower) || rule.key;
+    if (value === null) { delete outHeaders[outputKey]; continue; }
+    const text = String(value);
+    if (/[\r\n]/.test(text)) continue;
+    outHeaders[outputKey] = text;
+  }
+}
+
+function applyResponseBodyRules(text, contentType, rules, site, context) {
+  let output = text;
+  const jsonRules = rules.filter(rule => rule.target === "json");
+  const formRules = rules.filter(rule => rule.target === "form");
+  const textRules = rules.filter(rule => rule.target === "text");
+  if (jsonRules.length && /json/i.test(contentType)) {
+    let data;
+    try { data = JSON.parse(output); } catch { data = undefined; }
+    if (data !== undefined) {
+      for (const rule of jsonRules) {
+        let value;
+        try {
+          value = runResponseValueScript(site, rule, getJsonPath(data, rule.key), context);
+        } catch (e) {
+          console.error(`[response] site=${site.id} json rule error: ${e.message}`);
+          continue;
+        }
+        if (value !== undefined) setJsonPath(data, rule.key, value);
+      }
+      output = JSON.stringify(data);
+    }
+  }
+  if (formRules.length && /x-www-form-urlencoded/i.test(contentType)) {
+    const params = new URLSearchParams(output);
+    for (const rule of formRules) {
+      const current = params.has(rule.key) ? params.get(rule.key) : "";
+      let value;
+      try {
+        value = runResponseValueScript(site, rule, current, context);
+      } catch (e) {
+        console.error(`[response] site=${site.id} form rule error: ${e.message}`);
+        continue;
+      }
+      if (value === undefined) continue;
+      if (value === null) params.delete(rule.key);
+      else params.set(rule.key, typeof value === "string" ? value : JSON.stringify(value));
+    }
+    output = params.toString();
+  }
+  for (const rule of textRules) {
+    let pattern;
+    try { pattern = new RegExp(rule.key); } catch { continue; }
+    output = output.replace(pattern, (...args) => {
+      const match = args[0];
+      const groups = args.slice(0, args.length - 2);
+      const hasGroup = groups.length > 1 && groups[1] !== undefined;
+      const current = hasGroup ? groups[1] : match;
+      let value;
+      try {
+        value = runResponseValueScript(site, rule, current, context);
+      } catch (e) {
+        console.error(`[response] site=${site.id} text rule error: ${e.message}`);
+        return match;
+      }
+      if (value === undefined) return match;
+      const replacement = value === null ? "" : String(value);
+      if (!hasGroup) return replacement;
+      const index = match.indexOf(groups[1]);
+      if (index < 0) return replacement;
+      return match.slice(0, index) + replacement + match.slice(index + groups[1].length);
+    });
+  }
+  return output;
+}
+
 function normalizeSite(raw, index = 0) {
   const source = raw && typeof raw === "object" ? raw : {};
   const tu = parseTargetUrl(source.target_url);
@@ -650,6 +846,7 @@ function normalizeSite(raw, index = 0) {
     rewriteRequestHeaders: source.rewrite_request_headers !== false,
     auditProbe: parseAuditProbe(source.audit_probe),
     intercept: parseInterceptConfig(source.intercept),
+    responseRules: parseResponseRules(source.response_rules),
   };
 }
 
@@ -703,6 +900,7 @@ function serializeSite(site) {
     rewrite_request_headers: site.rewriteRequestHeaders !== false,
     audit_probe: { enabled: site.auditProbe?.enabled === true },
     intercept: serializeIntercept(site.intercept),
+    response_rules: serializeResponseRules(site.responseRules),
   };
 }
 
@@ -1397,6 +1595,12 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     return;
   }
 
+  const responseRules = (config.responseRules || []).filter(rule =>
+    rule.enabled && interceptMatches(rule, upstreamUrl, parsed.pathname + parsed.search));
+  const responseHeaderRules = responseRules.filter(rule => rule.target === "header");
+  const responseBodyRules = responseRules.filter(rule => rule.target !== "header");
+  const scriptContext = { request: buildScriptRequest(req, parsed, upstreamUrl), response: null };
+
   const requestCapture = config.auditProbe.enabled ? createBodyCapture(req.headers["content-type"], auditMaxBodyBytes) : null;
   const startedAt = Date.now();
   const unavailableUntil = unavailableUpstreams.get(config.targetOrigin) || 0;
@@ -1439,8 +1643,24 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     outHeaders["access-control-allow-headers"] = "*";
     outHeaders["access-control-expose-headers"] = "*";
 
-    const responseContentType = proxyRes.headers["content-type"] || "";
-    const cacheFallback = body => fallbackCache.put(config.id, parsed.pathname + parsed.search, responseContentType, body);
+    const ruleContext = responseRules.length ? {
+      request: scriptContext.request,
+      response: { status: proxyRes.statusCode, headers: { ...proxyRes.headers } },
+    } : null;
+    if (responseHeaderRules.length) {
+      applyResponseHeaderRules(outHeaders, proxyRes.headers, responseHeaderRules, config, ruleContext);
+    }
+    const contentTypeKey = Object.keys(outHeaders).find(key => key.toLowerCase() === "content-type");
+    const responseContentType = (contentTypeKey ? outHeaders[contentTypeKey] : proxyRes.headers["content-type"]) || "";
+    const applyBodyRules = text => {
+      if (!responseBodyRules.length) return text;
+      try { return applyResponseBodyRules(text, responseContentType, responseBodyRules, config, ruleContext); }
+      catch (e) { console.error(`[response] site=${config.id} body rule error: ${e.message}`); return text; }
+    };
+    const cacheFallback = body => {
+      if (responseBodyRules.length) return;
+      fallbackCache.put(config.id, parsed.pathname + parsed.search, responseContentType, body);
+    };
     const finishAudit = (body, representation) => {
       if (!requestCapture) return;
       const responseCapture = createBodyCapture(responseContentType, auditMaxBodyBytes);
@@ -1454,27 +1674,27 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     const { targetOrigin: origin, proxyPrefix: prefix, replaceRules: rules } = config;
     if (responseContentType.toLowerCase().includes("text/html")) {
       outHeaders["cache-control"] = "no-store";
-      return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteHtml(text, origin, prefix, rules, adminPath, config.id), (body, representation) => {
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => applyBodyRules(rewriteHtml(text, origin, prefix, rules, adminPath, config.id)), (body, representation) => {
         cacheFallback(body);
         finishAudit(body, representation);
       });
     }
-    if (responseContentType.toLowerCase().includes("text/css")) return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteCss(text, origin, prefix, rules), (body, representation) => {
+    if (responseContentType.toLowerCase().includes("text/css")) return bufferAndRewrite(proxyRes, res, outHeaders, text => applyBodyRules(rewriteCss(text, origin, prefix, rules)), (body, representation) => {
       cacheFallback(body);
       finishAudit(body, representation);
     });
-    if (responseContentType.toLowerCase().includes("javascript") && (rules.length > 0 || prefix)) return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteJs(text, origin, prefix, rules), (body, representation) => {
+    if (responseContentType.toLowerCase().includes("javascript") && (rules.length > 0 || prefix || responseBodyRules.length)) return bufferAndRewrite(proxyRes, res, outHeaders, text => applyBodyRules(rewriteJs(text, origin, prefix, rules)), (body, representation) => {
       cacheFallback(body);
       finishAudit(body, representation);
     });
-    if (responseContentType.toLowerCase().includes("application/json") && (rules.length > 0 || prefix || requestCapture)) {
-      return bufferAndRewrite(proxyRes, res, outHeaders, text => rewriteJson(text, origin, prefix, rules), (body, representation) => {
+    if (responseContentType.toLowerCase().includes("application/json") && (rules.length > 0 || prefix || requestCapture || responseBodyRules.length)) {
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => applyBodyRules(rewriteJson(text, origin, prefix, rules)), (body, representation) => {
         cacheFallback(body);
         finishAudit(body, representation);
       });
     }
-    if (requestCapture && isTextContentType(responseContentType)) {
-      return bufferAndRewrite(proxyRes, res, outHeaders, text => text, finishAudit);
+    if ((requestCapture || responseBodyRules.length) && isTextContentType(responseContentType)) {
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => applyBodyRules(text), finishAudit);
     }
 
     const responseCapture = requestCapture ? createBodyCapture(responseContentType, auditMaxBodyBytes) : null;

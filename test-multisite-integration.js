@@ -162,6 +162,15 @@ async function main() {
     if (request.url === "/submit" && request.method === "POST") {
       return { status: 201, contentType: "application/json", body: JSON.stringify({ from: "one", body: request.body.toString("utf8") }) };
     }
+    if (request.url === "/json-mutate") {
+      return { contentType: "application/json", body: JSON.stringify({ data: { token: "abc", n: 1 }, keep: true }) };
+    }
+    if (request.url === "/header-mutate") {
+      return { contentType: "text/plain", headers: { "x-upstream": "original" }, body: "ok" };
+    }
+    if (request.url === "/form-mutate") {
+      return { contentType: "application/x-www-form-urlencoded", body: "token=abc&n=1" };
+    }
     return { contentType: "text/plain", body: "one:" + request.url };
   });
   upstreamTwo = createTlsUpstream(upstreamTwoPort, request => ({ contentType: "text/plain", body: "two:" + request.url }));
@@ -258,6 +267,24 @@ async function main() {
   const routeTwo = await request(`http://127.0.0.1:${proxyPort}/two/hello?x=1`);
   assert.strictEqual(routeOne.text, "one:/hello?x=1");
   assert.strictEqual(routeTwo.text, "two:/hello?x=1");
+
+  const responseRules = [
+    { enabled: true, url_pattern: "/json-mutate", match_mode: "literal", target: "json", key: "data.token", code: 'return value + "-x";', timeout_ms: 1000 },
+    { enabled: true, url_pattern: "/json-mutate", match_mode: "literal", target: "json", key: "data.n", code: "return Number(value) + 10;", timeout_ms: 1000 },
+    { enabled: true, url_pattern: "/header-mutate", match_mode: "literal", target: "header", key: "x-upstream", code: 'return "changed-" + value;', timeout_ms: 1000 },
+    { enabled: true, url_pattern: "/form-mutate", match_mode: "literal", target: "form", key: "token", code: 'return value + "-f";', timeout_ms: 1000 },
+  ];
+  const rulesUpdate = await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ response_rules: responseRules }) });
+  assert.strictEqual(rulesUpdate.site.response_rules.length, 4);
+  const jsonMutated = await request(`http://127.0.0.1:${proxyPort}/one/json-mutate`);
+  assert.deepStrictEqual(jsonMutated.json, { data: { token: "abc-x", n: 11 }, keep: true });
+  const headerMutated = await request(`http://127.0.0.1:${proxyPort}/one/header-mutate`);
+  assert.strictEqual(headerMutated.response.headers.get("x-upstream"), "changed-original");
+  const formMutated = await request(`http://127.0.0.1:${proxyPort}/one/form-mutate`);
+  assert.ok(formMutated.text.includes("token=abc-f"), formMutated.text);
+  assert.ok(formMutated.text.includes("n=1"), formMutated.text);
+  const unaffectedPage = await request(`http://127.0.0.1:${proxyPort}/one/page.html`);
+  assert.ok(unaffectedPage.text.includes("One"), "response rules must only affect matching URLs");
 
   const beforeAudit = await api("/api/sites/default/audit-logs", token);
   assert.strictEqual(beforeAudit.total, 0);
