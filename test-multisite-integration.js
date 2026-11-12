@@ -232,6 +232,28 @@ async function main() {
   const duplicate = await request(apiUrl("/api/sites"), { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ id: "conflict", name: "Conflict", target_url: `https://127.0.0.1:${upstreamTwoPort}/`, proxy_prefix: "/two" }) });
   assert.strictEqual(duplicate.response.status, 400);
 
+  const interceptCode = 'return { status: 201, headers: { "x-intercept": "yes" }, body: { path: request.path, query: request.query, cookie: request.cookies.session || null, auth: request.headers.authorization || null, custom: request.headers["x-custom"] || null } };';
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({
+    intercept: {
+      enabled: true, url_pattern: "^/intercept-me", match_mode: "regex", status: 200,
+      content_type: "application/json; charset=utf-8", timeout_ms: 1000, code: interceptCode,
+    },
+  }) });
+  const intercepted = await request(`http://127.0.0.1:${proxyPort}/one/intercept-me?a=1`, {
+    headers: { Cookie: "session=abc123", Authorization: "Bearer tok", "X-Custom": "custom-value" },
+  });
+  assert.strictEqual(intercepted.response.status, 201, intercepted.text);
+  assert.strictEqual(intercepted.response.headers.get("x-intercept"), "yes");
+  assert.deepStrictEqual(intercepted.json, {
+    path: "/intercept-me", query: "?a=1", cookie: "abc123", auth: "Bearer tok", custom: "custom-value",
+  }, "intercept script must receive headers and cookies");
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({
+    intercept: { enabled: false, url_pattern: "^/intercept-me", match_mode: "regex", code: "" },
+  }) });
+  const notIntercepted = await request(`http://127.0.0.1:${proxyPort}/one/intercept-me`);
+  assert.strictEqual(notIntercepted.response.status, 200);
+  assert.ok(notIntercepted.text.startsWith("one:"), "disabled intercept must proxy to upstream");
+
   const routeOne = await request(`http://127.0.0.1:${proxyPort}/one/hello?x=1`);
   const routeTwo = await request(`http://127.0.0.1:${proxyPort}/two/hello?x=1`);
   assert.strictEqual(routeOne.text, "one:/hello?x=1");

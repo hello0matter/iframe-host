@@ -8,6 +8,7 @@ const https = require("https");
 const path = require("path");
 const zlib = require("zlib");
 const net = require("net");
+const vm = require("vm");
 const { spawnSync } = require("child_process");
 
 const ROOT = __dirname;
@@ -456,6 +457,181 @@ function parseAuditProbe(source) {
   return { enabled };
 }
 
+const INTERCEPT_BODY_LIMIT = 256 * 1024;
+
+function parseInterceptConfig(source) {
+  const raw = source && typeof source === "object" ? source : {};
+  const enabled = raw.enabled === true;
+  const urlPattern = typeof raw.url_pattern === "string" ? raw.url_pattern.trim() : "";
+  const matchMode = raw.match_mode === "literal" ? "literal" : "regex";
+  const code = typeof raw.code === "string" ? raw.code : "";
+  const statusValue = Number(raw.status);
+  const status = Number.isInteger(statusValue) ? Math.max(100, Math.min(statusValue, 599)) : 200;
+  const contentType = typeof raw.content_type === "string" && raw.content_type.trim()
+    ? raw.content_type.trim() : "application/json; charset=utf-8";
+  const headers = {};
+  if (raw.headers && typeof raw.headers === "object" && !Array.isArray(raw.headers)) {
+    for (const [key, value] of Object.entries(raw.headers)) {
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        headers[String(key)] = String(value);
+      }
+    }
+  }
+  const timeoutMs = Math.max(50, Math.min(Number(raw.timeout_ms) || 1000, 5000));
+  if (enabled) {
+    if (!urlPattern) throw new Error("intercept: url_pattern is required when enabled");
+    if (matchMode === "regex") {
+      try { new RegExp(urlPattern); } catch (e) {
+        throw new Error(`intercept: invalid regex — ${e.message}`);
+      }
+    }
+    if (!code.trim()) throw new Error("intercept: code is required when enabled");
+  }
+  return { enabled, urlPattern, matchMode, code, status, contentType, headers, timeoutMs };
+}
+
+function serializeIntercept(rule) {
+  const value = rule || parseInterceptConfig(null);
+  return {
+    enabled: value.enabled,
+    url_pattern: value.urlPattern,
+    match_mode: value.matchMode,
+    code: value.code,
+    status: value.status,
+    content_type: value.contentType,
+    headers: value.headers || {},
+    timeout_ms: value.timeoutMs,
+  };
+}
+
+function interceptMatches(rule, upstreamUrl, pathAndQuery) {
+  if (rule.matchMode === "literal") {
+    return upstreamUrl.includes(rule.urlPattern) || pathAndQuery.includes(rule.urlPattern);
+  }
+  try {
+    const pattern = new RegExp(rule.urlPattern);
+    return pattern.test(upstreamUrl) || pattern.test(pathAndQuery);
+  } catch { return false; }
+}
+
+function parseCookieHeader(header) {
+  const cookies = {};
+  if (!header || typeof header !== "string") return cookies;
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const name = part.slice(0, index).trim();
+    if (name) cookies[name] = part.slice(index + 1).trim();
+  }
+  return cookies;
+}
+
+function sanitizeInterceptHeaders(headers) {
+  const out = {};
+  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return out;
+  for (const [key, value] of Object.entries(headers)) {
+    if (!/^[A-Za-z0-9-]+$/.test(key)) continue;
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") continue;
+    if (/[\r\n]/.test(String(value))) continue;
+    const lower = key.toLowerCase();
+    if (["content-length", "transfer-encoding", "connection", "keep-alive"].includes(lower)) continue;
+    out[key] = String(value);
+  }
+  return out;
+}
+
+function readInterceptBody(req, limit) {
+  return new Promise(resolve => {
+    const chunks = [];
+    let size = 0;
+    let truncated = false;
+    req.on("data", chunk => {
+      if (size + chunk.length > limit) { truncated = true; return; }
+      chunks.push(chunk);
+      size += chunk.length;
+    });
+    req.on("end", () => resolve({ body: Buffer.concat(chunks).toString("utf8"), truncated }));
+    req.on("error", () => resolve({ body: Buffer.concat(chunks).toString("utf8"), truncated }));
+  });
+}
+
+function executeInterceptScript(site, rule, req, parsed, upstreamUrl, body) {
+  const sandbox = {
+    request: {
+      method: req.method,
+      url: upstreamUrl,
+      path: parsed.pathname,
+      query: parsed.search,
+      headers: { ...req.headers },
+      cookies: parseCookieHeader(req.headers.cookie),
+      body,
+    },
+    site: {
+      id: site.id,
+      name: site.name,
+      target_url: site.targetBase,
+      proxy_prefix: site.proxyPrefix,
+    },
+    console: { log: (...args) => console.log(`[intercept:${site.id}]`, ...args) },
+  };
+  const script = new vm.Script(`(function(){ "use strict";\n${rule.code}\n})()`, {
+    filename: `intercept-${site.id}.js`,
+  });
+  return script.runInNewContext(sandbox, {
+    timeout: rule.timeoutMs,
+    codeGeneration: { strings: false, wasm: false },
+  });
+}
+
+function sendInterceptResponse(site, rule, result, res) {
+  let status = rule.status;
+  let contentType = rule.contentType;
+  const headers = sanitizeInterceptHeaders(rule.headers);
+  let body = "";
+  if (typeof result === "string") {
+    body = result;
+  } else if (result && typeof result === "object") {
+    if (Number.isInteger(result.status) && result.status >= 100 && result.status <= 599) status = result.status;
+    Object.assign(headers, sanitizeInterceptHeaders(result.headers));
+    if (typeof result.content_type === "string" && result.content_type.trim()) contentType = result.content_type.trim();
+    if (typeof result.body === "string") {
+      body = result.body;
+    } else if (result.body !== undefined) {
+      body = JSON.stringify(result.body);
+      if (typeof result.content_type !== "string") contentType = "application/json; charset=utf-8";
+    }
+  }
+  if (!Object.keys(headers).some(key => key.toLowerCase() === "content-type") && contentType) {
+    headers["content-type"] = contentType;
+  }
+  headers["cache-control"] = "no-store";
+  headers["access-control-allow-origin"] = "*";
+  headers["access-control-allow-methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+  headers["access-control-allow-headers"] = "*";
+  headers["access-control-expose-headers"] = "*";
+  console.log(`[intercept] site=${site.id} match=${rule.matchMode}:${rule.urlPattern} status=${status}`);
+  res.writeHead(status, headers).end(body);
+}
+
+async function handleIntercept(site, req, res, parsed, upstreamUrl) {
+  const rule = site.intercept;
+  let body = "";
+  if (!["GET", "HEAD"].includes(req.method)) {
+    const captured = await readInterceptBody(req, INTERCEPT_BODY_LIMIT);
+    body = captured.body;
+  }
+  let result;
+  try {
+    result = executeInterceptScript(site, rule, req, parsed, upstreamUrl, body);
+  } catch (e) {
+    console.error(`[intercept] site=${site.id} script error: ${e.message}`);
+    res.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" })
+      .end(JSON.stringify({ ok: false, error: "intercept script error" }));
+    return;
+  }
+  sendInterceptResponse(site, rule, result, res);
+}
+
 function normalizeSite(raw, index = 0) {
   const source = raw && typeof raw === "object" ? raw : {};
   const tu = parseTargetUrl(source.target_url);
@@ -473,6 +649,7 @@ function normalizeSite(raw, index = 0) {
     oauthBypassPaths,
     rewriteRequestHeaders: source.rewrite_request_headers !== false,
     auditProbe: parseAuditProbe(source.audit_probe),
+    intercept: parseInterceptConfig(source.intercept),
   };
 }
 
@@ -525,6 +702,7 @@ function serializeSite(site) {
     replace_rules: site.replaceRules, oauth_bypass_paths: site.oauthBypassPaths || [],
     rewrite_request_headers: site.rewriteRequestHeaders !== false,
     audit_probe: { enabled: site.auditProbe?.enabled === true },
+    intercept: serializeIntercept(site.intercept),
   };
 }
 
@@ -1212,6 +1390,13 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     if (fwdHeaders.origin && fwdHeaders.origin.includes(req.headers.host)) fwdHeaders.origin = config.targetOrigin;
   }
 
+  const upstreamUrl = config.targetBase + parsed.pathname + parsed.search;
+  if (config.intercept && config.intercept.enabled &&
+      interceptMatches(config.intercept, upstreamUrl, parsed.pathname + parsed.search)) {
+    handleIntercept(config, req, res, parsed, upstreamUrl);
+    return;
+  }
+
   const requestCapture = config.auditProbe.enabled ? createBodyCapture(req.headers["content-type"], auditMaxBodyBytes) : null;
   const startedAt = Date.now();
   const unavailableUntil = unavailableUpstreams.get(config.targetOrigin) || 0;
@@ -1219,7 +1404,6 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     if (!serveFallback(config, req, res, parsed)) res.writeHead(503).end("upstream unavailable");
     return;
   }
-  const upstreamUrl = config.targetBase + parsed.pathname + parsed.search;
   let up;
   try { up = new URL(upstreamUrl); } catch { return res.status(400).end(); }
   const transport = up.protocol === "https:" ? https : http;
