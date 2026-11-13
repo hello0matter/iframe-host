@@ -8,21 +8,22 @@
 :root{--ink:#17202a;--muted:#667085;--line:#dfe5ec;--bg:#f5f7fa;--card:#fff;--accent:#0f766e;--danger:#b42318;--warning:#9a6700}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Arial,sans-serif}.shell{max-width:1280px;margin:auto;padding:28px 18px}.hidden{display:none!important}.card,.modal-panel{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px #1018280c}.card{margin-bottom:18px}.header,.body{padding:20px}.header{border-bottom:1px solid var(--line)}h1,h2,h3,p{margin-top:0}.eyebrow{color:var(--accent);font-weight:bold;text-transform:uppercase;letter-spacing:.08em;font-size:12px;margin-bottom:4px}.grid{display:grid;gap:16px}.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.field{display:grid;gap:6px}input,select,textarea{width:100%;padding:9px 10px;border:1px solid #bcc7d4;border-radius:7px;font:inherit}textarea{min-height:86px;resize:vertical}button{border:0;border-radius:7px;padding:9px 13px;background:var(--accent);color:#fff;font:600 13px Arial;cursor:pointer}button.secondary{background:#e8eef1;color:var(--ink)}button.danger{background:var(--danger)}button.warn{background:#a15c00}button:disabled{opacity:.55;cursor:not-allowed}.actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.status{min-height:18px;color:var(--accent)}.status.error{color:var(--danger)}.hint,.muted{color:var(--muted);font-size:12px}.tab-nav{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:18px}.tab-btn{background:transparent;color:var(--muted);border-radius:0;border-bottom:3px solid transparent}.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}.site-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}.site-card,.rule-card,.form-section{border:1px solid var(--line);border-radius:10px;padding:16px}.site-card h3{margin-bottom:5px}.form-section{display:grid;gap:12px;background:#fbfcfe}.form-section h3{margin:0}.rule-list{display:grid;gap:12px}.rule-card{display:grid;gap:12px;background:#fff}.rule-head{display:flex;align-items:center;gap:10px}.rule-number{font-weight:bold}.rule-card .field textarea{min-height:72px}.badge{display:inline-block;border-radius:99px;padding:3px 8px;font-size:11px;background:#e6f4ea;color:#137333}.badge.off{background:#fce8e6;color:#b3261e}.badge.audit{background:#fff4ce;color:#8a5b00}.badge.intercept{background:#e8f0fe;color:#1a56db}.badge.response{background:#f3e8ff;color:#6b21a8}.table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:650px}th,td{padding:9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#f8fafc}.modal{position:fixed;inset:0;background:#10182880;z-index:20;padding:24px;overflow:auto}.modal-panel{max-width:820px;margin:30px auto}.modal-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.warning{padding:11px;border:1px solid #f5c27a;background:#fff7e6;color:#7a4b00;border-radius:7px}.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.stat{border:1px solid var(--line);padding:13px;border-radius:8px}.stat b{display:block;font-size:23px}.body-preview{white-space:pre-wrap;word-break:break-word;background:#101828;color:#f8fafc;padding:12px;border-radius:7px;max-height:360px;overflow:auto}.right{margin-left:auto}@media(max-width:600px){.shell{padding:14px}.modal{padding:10px}.rule-head{align-items:flex-start}.rule-head .danger{margin-left:auto}}
 .help-block{margin-bottom:22px}.help-block h2{font-size:16px;margin:0 0 8px}.help-block ul{margin:0;padding-left:20px}.help-block li{margin:6px 0;line-height:1.55}.help-block code{background:#eef2f6;padding:1px 5px;border-radius:4px}.code-input{min-height:150px;font-family:Consolas,Menlo,monospace;font-size:12px;line-height:1.5}
+#helpContents{margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--line)}#helpContents a{color:var(--accent);padding:6px 10px;background:#e8eef1;border-radius:6px;text-decoration:none}.help-block{scroll-margin-top:20px}input[aria-invalid="true"]{border-color:var(--danger);outline:2px solid #b4231820}.tab-nav{flex-wrap:wrap}
 </style>
 </head>
 <body>
 <div class="shell">
-  <section id="loginCard" class="card"><div class="header"><p class="eyebrow">Control</p><h1>Access settings</h1></div><div class="body row"><div class="field"><label>Username<input id="username" autocomplete="username"></label></div><div class="field"><label>Password<input id="password" type="password" autocomplete="current-password"></label></div><div class="actions"><button id="loginButton">Sign in</button><span id="loginStatus" class="status"></span><button id="loginLangButton" class="secondary" type="button">中文</button></div></div></section>
+  <section id="loginCard" class="card"><div class="header"><p class="eyebrow">Control</p><h1>Access settings</h1></div><div class="body row"><div class="field"><label>Username<input id="username" autocomplete="username"></label></div><div class="field"><label>Password<input id="password" type="password" autocomplete="current-password"></label></div><div class="actions"><button id="loginButton">Sign in</button><span id="loginStatus" class="status" role="status" aria-live="polite"></span></div></div></section>
   <div id="app" class="hidden">
-    <nav class="tab-nav"><button class="tab-btn active" data-tab="sites">Sites</button><button class="tab-btn" data-tab="analytics">Visitor Analytics</button><button class="tab-btn" data-tab="audit">Audit Logs</button><button class="tab-btn" data-tab="help">Help</button><button id="langButton" class="tab-btn right">中文</button><button id="globalButton" class="tab-btn">Global settings</button><button id="logoutButton" class="tab-btn">Sign out</button></nav>
+    <nav class="tab-nav"><button class="tab-btn active" data-tab="sites">Sites</button><button class="tab-btn" data-tab="analytics">Visitor Analytics</button><button class="tab-btn" data-tab="audit">Audit Logs</button><button id="helpButton" class="tab-btn" data-tab="help">User guide</button><button id="globalButton" class="tab-btn right">Global settings</button><button id="logoutButton" class="tab-btn">Sign out</button></nav>
     <section id="sitesView"><div class="card"><div class="header"><div class="actions"><div><p class="eyebrow">Proxy</p><h1>Managed sites</h1></div><button id="addSiteButton" class="right">Add site</button></div></div><div class="body"><p class="hint">Each enabled site has its own prefix, rewrite rules, visitor data, and optional request/response audit probe.</p><div id="siteStatus" class="status"></div><div id="siteGrid" class="site-grid"></div></div></div></section>
     <section id="analyticsView" class="hidden"><div class="card"><div class="header"><div class="actions"><div><p class="eyebrow">Visitor analytics</p><h1 id="analyticsTitle">Select a site</h1></div><select id="analyticsSite" class="right"></select><button id="analyticsRefresh">Refresh</button><button id="analyticsExport" class="secondary">Export CSV</button></div></div><div class="body"><div id="analyticsStatus" class="status"></div><div id="analyticsStats" class="summary"></div><div class="table-wrap"><table><thead><tr><th>ID</th><th>Visits</th><th>Last visit</th><th>Device</th><th>Page views</th><th>Interactions</th></tr></thead><tbody id="visitorRows"></tbody></table></div></div></div></section>
     <section id="auditView" class="hidden"><div class="card"><div class="header"><div class="actions"><div><p class="eyebrow">Audit logs</p><h1 id="auditTitle">Select a site</h1></div><select id="auditSite" class="right"></select><button id="auditRefresh">Refresh</button><button id="auditClear" class="danger">Clear all</button></div></div><div class="body"><p class="warning">Audit records may contain authentication data, form submissions, tokens, and other sensitive content. Access is restricted to authenticated administrators. Clearing records is permanent.</p><div class="row" style="margin:14px 0"><label class="field">Status<input id="auditStatusFilter" placeholder="200"></label><label class="field">Method<input id="auditMethodFilter" placeholder="POST"></label><label class="field">Path<input id="auditPathFilter" placeholder="/api/"></label><div class="actions"><button id="auditFilter">Apply filters</button></div></div><div id="auditStatus" class="status"></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Method</th><th>Path</th><th>Status</th><th>Duration</th><th>Bytes</th><th></th></tr></thead><tbody id="auditRows"></tbody></table></div></div></div></section>
-    <section id="helpView" class="hidden"><div class="card"><div class="header"><div class="actions"><div><p class="eyebrow">Help</p><h1>Configuration guide</h1></div><button id="helpRefresh" class="secondary">Refresh</button></div></div><div class="body"><div id="helpContent"></div></div></div></section>
+    <section id="helpView" class="hidden"><div class="card"><div class="header"><div class="actions"><div><p class="eyebrow">Help</p><h1>Configuration guide</h1></div><button id="helpBack" class="secondary">Back to sites</button></div></div><div class="body"><nav id="helpContents" class="actions" aria-label="Guide topics"></nav><div id="helpContent"></div></div></div></section>
   </div>
 </div>
-<div id="siteModal" class="modal hidden"><div class="modal-panel"><div class="header modal-head"><div><p class="eyebrow">Site</p><h2 id="siteModalTitle">Add site</h2></div><button class="secondary" data-close="siteModal">Close</button></div><div class="body grid"><section class="form-section"><h3>Identity and route</h3><div class="row"><label class="field">ID<input id="siteId" placeholder="site-name"><span class="hint">Lowercase letters, numbers, hyphens, and underscores. This cannot be changed after creation.</span></label><label class="field">Display name<input id="siteName" placeholder="Customer portal"></label></div><div class="row"><label class="field">Target HTTPS URL<input id="siteTargetUrl" placeholder="https://example.com"></label><label class="field">Proxy prefix<input id="sitePrefix" placeholder="/internal-content"><span class="hint">Use <code>/</code> to serve this site from the domain root. Each enabled site needs a distinct prefix.</span></label></div></section><section class="form-section"><h3>Replacement rules</h3><p class="hint">Rules are applied in order before standard proxy URL rewriting. Use literal for ordinary text or URL substitutions; choose regex only when the pattern is a JavaScript regular expression.</p><div id="ruleList" class="rule-list"></div><div class="actions"><button id="addRuleButton" type="button" class="secondary">Add replacement rule</button></div></section><section class="form-section"><h3>Response value scripts</h3><p class="hint">When the upstream response URL matches a rule, read a value from the JSON body, a response header, a form field or a text capture, run the JavaScript with that value, and write the returned value back into the same place.</p><div id="responseRuleList" class="rule-list"></div><div class="actions"><button id="addResponseRuleButton" type="button" class="secondary">Add response rule</button></div></section><section class="form-section"><h3>URL intercept script</h3><p class="hint">When a request URL matches the pattern, the proxy skips the upstream request and runs the JavaScript below. The script can read request.method/path/query/url/headers/cookies/body, and must return a string or an object with status, headers, body and content_type.</p><div class="row"><label class="field">Intercept<select id="siteInterceptEnabled"><option value="false">Off — proxy upstream normally</option><option value="true">On — match and run script</option></select></label><label class="field">URL pattern<input id="siteInterceptPattern" placeholder="^/api/login"></label><label class="field">Match mode<select id="siteInterceptMode"><option value="regex">Regular expression</option><option value="literal">Literal text</option></select></label></div><div class="row"><label class="field">Default status<input id="siteInterceptStatus" type="number" min="100" max="599" value="200"></label><label class="field">Default content type<input id="siteInterceptContentType" value="application/json; charset=utf-8"></label><label class="field">Timeout (ms)<input id="siteInterceptTimeout" type="number" min="50" max="5000" value="1000"><span class="hint">Synchronous execution limit: 50–5000 ms.</span></label></div><label class="field">JavaScript code<textarea id="siteInterceptCode" class="code-input" placeholder="return { status: 200, body: { ok: true, path: request.path } };"></textarea><span class="hint">request.headers and request.cookies contain the caller's headers and cookies. The script runs synchronously; return a string or an object.</span></label></section><section class="form-section"><h3>Compatibility and audit controls</h3><div class="row"><label class="field">Enabled<select id="siteEnabled"><option value="true">Enabled — accept public requests</option><option value="false">Disabled — keep configuration only</option></select></label><label class="field">Rewrite request headers<select id="siteRewriteHeaders"><option value="true">On — recommended</option><option value="false">Off</option></select></label><label class="field">Audit probe<select id="siteAudit"><option value="false">Off — do not store bodies</option><option value="true">On — capture bounded bodies</option></select></label></div><label class="field">OAuth bypass paths<textarea id="siteOauth" placeholder="One absolute path per line, for example /auth/callback"></textarea><span class="hint">Only add paths that must bypass the normal proxy rewrite flow.</span></label></section><p class="warning">Enabling audit captures textual request and response bodies up to the server-wide limit. Binary or oversized content is kept only as bounded metadata and a sample.</p><div class="actions"><button id="siteSave">Save site</button><span id="siteSaveStatus" class="status"></span></div></div></div></div>
-<div id="globalModal" class="modal hidden"><div class="modal-panel"><div class="header modal-head"><div><p class="eyebrow">Global</p><h2>Global settings</h2></div><button class="secondary" data-close="globalModal">Close</button></div><div class="body grid"><div class="row"><label class="field">Admin username<input id="globalUsername"></label><label class="field">New password<input id="globalPassword" type="password" autocomplete="new-password"><span class="hint">Leave blank to retain the existing password.</span></label></div><div class="row"><label class="field">Language<select id="globalLanguage"><option value="zh">中文</option><option value="en">English</option></select><span class="hint">Applies to the entire administration interface on this browser.</span></label></div><label class="field">Maximum captured text body bytes<input id="globalAuditBytes" type="number" min="1024" max="10485760"></label><div class="actions"><button id="globalSave">Save global settings</button><span id="globalStatus" class="status"></span></div></div></div></div>
+<div id="siteModal" class="modal hidden"><div class="modal-panel"><div class="header modal-head"><div><p class="eyebrow">Site</p><h2 id="siteModalTitle">Add site</h2></div><div class="actions"><button type="button" class="secondary" data-guide="siteModal">User guide</button><button class="secondary" data-close="siteModal">Close</button></div></div><div class="body grid"><section class="form-section"><h3>Identity and route</h3><div class="row"><label class="field">ID<input id="siteId" placeholder="site-name"><span class="hint">1–64 letters, numbers, hyphens or underscores; start with a letter or number. Example: my-site. Cannot be changed after creation.</span></label><label class="field">Display name<input id="siteName" placeholder="Customer portal"></label></div><div class="row"><label class="field">Target HTTPS URL<input id="siteTargetUrl" placeholder="https://example.com"></label><label class="field">Proxy prefix<input id="sitePrefix" placeholder="/internal-content"><span class="hint">Use <code>/</code> to serve this site from the domain root. Each enabled site needs a distinct prefix.</span></label></div></section><section class="form-section"><h3>Replacement rules</h3><p class="hint">Rules are applied in order before standard proxy URL rewriting. Use literal for ordinary text or URL substitutions; choose regex only when the pattern is a JavaScript regular expression.</p><div id="ruleList" class="rule-list"></div><div class="actions"><button id="addRuleButton" type="button" class="secondary">Add replacement rule</button></div></section><section class="form-section"><h3>Response value scripts</h3><p class="hint">When the upstream response URL matches a rule, read a value from the JSON body, a response header, a form field or a text capture, run the JavaScript with that value, and write the returned value back into the same place.</p><div id="responseRuleList" class="rule-list"></div><div class="actions"><button id="addResponseRuleButton" type="button" class="secondary">Add response rule</button></div></section><section class="form-section"><h3>URL intercept script</h3><p class="hint">When a request URL matches the pattern, the proxy skips the upstream request and runs the JavaScript below. The script can read request.method/path/query/url/headers/cookies/body, and must return a string or an object with status, headers, body and content_type.</p><div class="row"><label class="field">Intercept<select id="siteInterceptEnabled"><option value="false">Off — proxy upstream normally</option><option value="true">On — match and run script</option></select></label><label class="field">URL pattern<input id="siteInterceptPattern" placeholder="^/api/login"></label><label class="field">Match mode<select id="siteInterceptMode"><option value="regex">Regular expression</option><option value="literal">Literal text</option></select></label></div><div class="row"><label class="field">Default status<input id="siteInterceptStatus" type="number" min="100" max="599" value="200"></label><label class="field">Default content type<input id="siteInterceptContentType" value="application/json; charset=utf-8"></label><label class="field">Timeout (ms)<input id="siteInterceptTimeout" type="number" min="50" max="5000" value="1000"><span class="hint">Synchronous execution limit: 50–5000 ms.</span></label></div><label class="field">JavaScript code<textarea id="siteInterceptCode" class="code-input" placeholder="return { status: 200, body: { ok: true, path: request.path } };"></textarea><span class="hint">request.headers and request.cookies contain the caller's headers and cookies. The script runs synchronously; return a string or an object.</span></label></section><section class="form-section"><h3>Compatibility and audit controls</h3><div class="row"><label class="field">Enabled<select id="siteEnabled"><option value="true">Enabled — accept public requests</option><option value="false">Disabled — keep configuration only</option></select></label><label class="field">Rewrite request headers<select id="siteRewriteHeaders"><option value="true">On — recommended</option><option value="false">Off</option></select></label><label class="field">Audit probe<select id="siteAudit"><option value="false">Off — do not store bodies</option><option value="true">On — capture bounded bodies</option></select></label></div><label class="field">OAuth bypass paths<textarea id="siteOauth" placeholder="One absolute path per line, for example /auth/callback"></textarea><span class="hint">Only add paths that must bypass the normal proxy rewrite flow.</span></label></section><p class="warning">Enabling audit captures textual request and response bodies up to the server-wide limit. Binary or oversized content is kept only as bounded metadata and a sample.</p><div class="actions"><button id="siteSave">Save site</button><span id="siteSaveStatus" class="status" role="status" aria-live="polite"></span></div></div></div></div>
+<div id="globalModal" class="modal hidden"><div class="modal-panel"><div class="header modal-head"><div><p class="eyebrow">Global</p><h2>Global settings</h2></div><div class="actions"><button type="button" class="secondary" data-guide="globalModal">User guide</button><button class="secondary" data-close="globalModal">Close</button></div></div><div class="body grid"><div class="row"><label class="field">Admin username<input id="globalUsername"></label><label class="field">New password<input id="globalPassword" type="password" autocomplete="new-password"><span class="hint">Leave blank to retain the existing password.</span></label></div><div class="row"><label class="field">Language<select id="globalLanguage"><option value="zh">中文</option><option value="en">English</option></select><span class="hint">Applies to the entire administration interface on this browser.</span></label></div><label class="field">Maximum captured text body bytes<input id="globalAuditBytes" type="number" min="1024" max="10485760"></label><div class="actions"><button id="globalSave">Save global settings</button><span id="globalStatus" class="status"></span></div></div></div></div>
 <div id="auditDetailModal" class="modal hidden"><div class="modal-panel"><div class="header modal-head"><div><p class="eyebrow">Sensitive audit content</p><h2>Audit record</h2></div><button class="secondary" data-close="auditDetailModal">Close</button></div><div class="body"><div id="auditDetail"></div></div></div></div>
 <script>
 const ADMIN_BASE=location.pathname.replace(/\/+$/,'')||'/', TOKEN_KEY='proxyAdminToken';
@@ -34,7 +35,7 @@ en: {
 "title":"Proxy Administration",
 "lang.button":"中文",
 "login.eyebrow":"Control","login.title":"Access settings","login.username":"Username","login.password":"Password","login.signin":"Sign in",
-"nav.sites":"Sites","nav.analytics":"Visitor Analytics","nav.audit":"Audit Logs","nav.help":"Help","nav.global":"Global settings","nav.logout":"Sign out",
+"nav.sites":"Sites","nav.analytics":"Visitor Analytics","nav.audit":"Audit Logs","nav.help":"User guide","nav.global":"Global settings","nav.logout":"Sign out",
 "sites.eyebrow":"Proxy","sites.title":"Managed sites","sites.add":"Add site",
 "sites.hint":"Each enabled site has its own prefix, rewrite rules, visitor data, and optional request/response audit probe.",
 "sites.none":"No sites configured.",
@@ -52,7 +53,7 @@ en: {
 "audit.request":"Request","audit.response":"Response","audit.binarySample":"[binary sample, base64]","audit.noBody":"[no saved body]",
 "audit.statusPlaceholder":"200","audit.methodPlaceholder":"POST","audit.pathPlaceholder":"/api/",
 "site.eyebrow":"Site","site.editTitle":"Edit site","site.addTitle":"Add site","site.identity":"Identity and route",
-"site.id":"ID","site.idPlaceholder":"site-name","site.idHint":"Lowercase letters, numbers, hyphens, and underscores. This cannot be changed after creation.",
+"site.id":"ID","site.idPlaceholder":"site-name","site.idHint":"1–64 letters, numbers, hyphens or underscores; start with a letter or number. Example: my-site. Cannot be changed after creation.",
 "site.name":"Display name","site.namePlaceholder":"Customer portal","site.targetUrl":"Target HTTPS URL","site.targetPlaceholder":"https://example.com",
 "site.prefix":"Proxy prefix","site.prefixPlaceholder":"/internal-content",
 "site.prefixHintA":"Use","site.prefixHintB":"to serve this site from the domain root. Each enabled site needs a distinct prefix.",
@@ -100,13 +101,21 @@ en: {
 "confirm.clearAudit":"This permanently deletes every audit record for {name}. Type {expected} to confirm.",
 "audit.removed":"Removed {n} records.",
 "err.network":"Network request failed: {error}","err.unexpectedHttp":"Unexpected HTTP {status} response","err.requestFailed":"Request failed ({status})",
+"err.siteId":"Site ID is required: use 1–64 letters, numbers, hyphens or underscores, starting with a letter or number. Example: my-site (not a URL or display name).",
+"err.siteName":"Display name must contain 1–120 characters.","err.targetUrl":"Enter a complete upstream HTTPS URL, for example https://example.com.",
+"err.prefix":"Proxy prefix must be / or an absolute path such as /internal-content, without a trailing slash.",
+"err.duplicateId":"This site ID already exists. Choose a different ID.","err.duplicatePrefix":"Another configured site uses this prefix. Choose a different prefix; disabled sites also reserve their prefixes.",
+"err.adminPrefix":"The site prefix conflicts with the administration path. Choose a different prefix.","err.enabledSite":"Keep at least one site enabled.",
+"err.credentials":"Incorrect username or password.","err.unauthorized":"Your session has expired or you are not signed in. Sign in again.",
+"err.adminUsername":"Admin username must be 1–64 letters, numbers, dots, underscores, @ signs or hyphens.","err.adminPassword":"The new password must contain at least 12 characters.",
+"help.back":"Back to sites","help.topics":"Guide topics",
 "help.eyebrow":"Help","help.title":"Configuration guide","help.refresh":"Refresh"
 },
 zh: {
 "title":"代理管理后台",
 "lang.button":"English",
 "login.eyebrow":"控制台","login.title":"访问设置","login.username":"用户名","login.password":"密码","login.signin":"登录",
-"nav.sites":"站点","nav.analytics":"访客分析","nav.audit":"审计日志","nav.help":"帮助","nav.global":"全局设置","nav.logout":"退出登录",
+"nav.sites":"站点","nav.analytics":"访客分析","nav.audit":"审计日志","nav.help":"使用说明","nav.global":"全局设置","nav.logout":"退出登录",
 "sites.eyebrow":"代理","sites.title":"站点管理","sites.add":"添加站点",
 "sites.hint":"每个启用的站点都有独立的前缀、替换规则、访客数据，以及可选的请求/响应审计探针。",
 "sites.none":"尚未配置站点。",
@@ -124,7 +133,7 @@ zh: {
 "audit.request":"请求","audit.response":"响应","audit.binarySample":"[二进制样本，base64]","audit.noBody":"[未保存正文]",
 "audit.statusPlaceholder":"200","audit.methodPlaceholder":"POST","audit.pathPlaceholder":"/api/",
 "site.eyebrow":"站点","site.editTitle":"编辑站点","site.addTitle":"添加站点","site.identity":"标识与路由",
-"site.id":"ID","site.idPlaceholder":"站点标识","site.idHint":"仅限小写字母、数字、连字符和下划线，创建后不可修改。",
+"site.id":"ID","site.idPlaceholder":"站点标识","site.idHint":"1–64 位英文字母、数字、连字符或下划线，以字母或数字开头，例如 my-site；创建后不可修改。",
 "site.name":"显示名称","site.namePlaceholder":"客户门户","site.targetUrl":"目标 HTTPS 地址","site.targetPlaceholder":"https://example.com",
 "site.prefix":"代理前缀","site.prefixPlaceholder":"/internal-content",
 "site.prefixHintA":"使用","site.prefixHintB":"从域名根路径提供此站点。每个启用的站点都需要不同的前缀。",
@@ -172,6 +181,14 @@ zh: {
 "confirm.clearAudit":"这会永久删除 {name} 的全部审计记录。请输入 {expected} 确认。",
 "audit.removed":"已删除 {n} 条记录。",
 "err.network":"网络请求失败：{error}","err.unexpectedHttp":"HTTP {status} 响应异常","err.requestFailed":"请求失败（{status}）",
+"err.siteId":"请填写正确的站点 ID：1–64 位英文字母、数字、连字符或下划线，且以字母或数字开头。例如 my-site；不要填写网址或中文显示名称。",
+"err.siteName":"显示名称不能为空，且不能超过 120 个字符。","err.targetUrl":"请填写完整的上游 HTTPS 地址，例如 https://example.com。",
+"err.prefix":"代理前缀应为 / 或以 / 开头的路径（例如 /internal-content），末尾不要加 /。",
+"err.duplicateId":"该站点 ID 已存在，请换一个 ID。","err.duplicatePrefix":"其他站点已配置此前缀，请更换前缀；停用的站点也会保留其前缀。",
+"err.adminPrefix":"站点前缀与管理后台路径冲突，请使用其他前缀。","err.enabledSite":"请至少保留一个已启用的站点。",
+"err.credentials":"用户名或密码不正确，请检查后重试。","err.unauthorized":"尚未登录或登录已过期，请重新登录。",
+"err.adminUsername":"管理员用户名应为 1–64 位字母、数字、点、下划线、@ 或连字符。","err.adminPassword":"新密码至少需要 12 个字符。",
+"help.back":"返回站点","help.topics":"说明目录",
 "help.eyebrow":"帮助","help.title":"配置指南","help.refresh":"刷新"
 }
 };
@@ -206,6 +223,23 @@ const PLACEHOLDERS = {
 };
 const HELP = {
 en: [
+  { h: 'Site fields and save errors', items: [
+    '<b>Site ID</b> is a permanent internal identifier, not a display name or URL. Use 1–64 English letters, numbers, hyphens or underscores, starting with a letter or number; for example <code>my-site</code>. Chinese names belong in <b>Display name</b>.',
+    '<b>Display name</b>: 1–120 characters. <b>Target HTTPS URL</b>: a complete upstream address such as <code>https://example.com</code>. <b>Proxy prefix</b>: use <code>/</code> for the domain root or a distinct path such as <code>/portal</code>.',
+    'Saving validates required fields and focuses the invalid field. Duplicate IDs, conflicting prefixes and invalid credentials are reported in the selected language. Fix the indicated field and save again.'
+  ]},
+  { h: 'Global settings and language', items: [
+    'After signing in, open <b>Global settings → Language</b> and select <b>中文</b> or <b>English</b>. The interface and this guide switch immediately; the selection is remembered in this browser after refresh and sign-in.',
+    'There is no language switch on the login screen or in the navigation bar. On a new browser the initial language follows the browser language. This preference does not translate the proxied website or change the language for other administrators.',
+    'Global settings also contain the admin username, new password and maximum captured text body bytes. Leave the password blank to keep it; a new password needs at least 12 characters. Save global settings to apply server configuration changes.'
+  ]},
+  { h: 'Compatibility and audit controls', items: [
+    '<b>Enabled</b> controls whether the site accepts public requests; disabling it keeps its configuration. Keep at least one site enabled.',
+    '<b>Rewrite request headers</b> adjusts Origin and Referer for the upstream; leaving it on is recommended. <b>OAuth bypass paths</b> redirect matching paths to the upstream rather than proxying them; only add paths that require this behavior.',
+    '<b>Audit probe</b> saves bounded text request and response bodies only when enabled. Binary and oversized bodies retain metadata and a bounded sample. Each site retains at most 300 records / 64 MB; older records are removed automatically.',
+    'Open <b>Audit Logs</b> to filter by site, method, status or path and view request/response details. Clear requires the exact confirmation shown and cannot be undone. Disabling capture does not delete existing logs.',
+    '<b>Visitor Analytics</b> shows per-site visits and interactions and supports CSV export. Analytics does not request precise browser location.'
+  ]},
   { h: 'Quick start', items: [
     'Open <b>Sites → Add site</b>, fill in a unique ID, a display name, the upstream HTTPS URL and a prefix. Use <code>/</code> only when this site should own the domain root.',
     'Save, then open <code>https://your-domain&lt;prefix&gt;/</code> and confirm that assets, links and the login flow work.',
@@ -232,8 +266,8 @@ en: [
   { h: 'Response value scripts', items: [
     'Rules match the upstream response URL. When matched, the proxy reads one value from the JSON body, a response header, a form field or a text capture.',
     'JSON keys accept dot and index paths such as <code>data.token</code> or <code>items[0].price</code>. Header keys use the header name. Form keys use the field name. Text uses a regular expression; the first capture group is replaced when present.',
-    'The script receives <code>value</code>, <code>key</code>, <code>request</code>, <code>response</code>, <code>site</code> and <code>console.log</code>. Return the replacement value; return undefined to keep the original, or null to remove the key or header.',
-    'Example: <code>return String(value).replace("0.5", "1.0");</code>'
+    'The script receives <code>value</code>, <code>key</code>, <code>request</code>, <code>response</code>, <code>site</code> and <code>console.log</code>. Return the replacement value; return undefined to keep the original, null to delete a header/form field, or null to store JSON null. For text, null replaces the match with an empty string.',
+    'Example: <code>return String(value).trim();</code>'
   ]},
   { h: 'URL intercept script', items: [
     'Each site can intercept requests by URL pattern. When the pattern matches, the proxy does not contact the upstream at all; it runs your JavaScript and returns that result.',
@@ -249,6 +283,23 @@ en: [
   ]}
 ],
 zh: [
+  { h: '站点字段与保存报错', items: [
+    '<b>站点 ID</b> 是永久内部标识，不是显示名称或网址。应为 1–64 位英文字母、数字、连字符或下划线，且以字母或数字开头，例如 <code>my-site</code>。中文名称请填写在<b>显示名称</b>中。',
+    '<b>显示名称</b>：1–120 个字符。<b>上游 HTTPS 地址</b>：填写完整地址，例如 <code>https://example.com</code>。<b>代理前缀</b>：根站用 <code>/</code>，其他站点使用不同路径，例如 <code>/portal</code>。',
+    '保存时会先检查必填字段并定位出错位置；ID 重复、前缀冲突、登录凭据错误等使用当前界面语言提示。根据提示修改后重新保存。'
+  ]},
+  { h: '全局设置与中英文切换', items: [
+    '登录后台后，打开<b>全局设置 → 界面语言</b>，选择<b>中文</b>或 <b>English</b>。后台和本说明立即切换，刷新或重新登录后仍记住当前浏览器的选择。',
+    '登录页和顶部导航不再单独放语言切换按钮；新浏览器首次进入时跟随浏览器语言。此设置不翻译被代理的网站，也不影响其他管理员的浏览器。',
+    '全局设置还可以修改管理员用户名、新密码和正文采集上限。密码留空表示保留原密码，新密码至少 12 位。服务器配置需要点击<b>保存全局设置</b>后生效。'
+  ]},
+  { h: '兼容性、审计与访客分析', items: [
+    '<b>已启用</b>决定站点是否接受公开请求；停用不会删除配置。系统至少需要保留一个已启用站点。',
+    '<b>重写请求头</b>会将 Origin、Referer 调整为上游所需地址，通常保持开启。<b>OAuth 绕过路径</b>会将匹配路径重定向到上游而非代理，仅添加确实需要的路径。',
+    '<b>审计探针</b>开启后才保存有限的文本请求和响应正文，二进制或超限内容只保留元数据及有限样本；每站点最多 300 条、64MB，超出后自动删旧记录。',
+    '在<b>审计日志</b>中按站点、方法、状态码、路径筛选并查看详情；清空需输入界面指定的确认文字，删除不可恢复。关闭采集不会自动删除旧日志。',
+    '<b>访客分析</b>按站点展示访问和交互统计，支持 CSV 导出，不会向浏览器请求精确定位权限。'
+  ]},
   { h: '快速开始', items: [
     '打开 <b>站点 → 添加站点</b>，填写唯一的 ID、显示名称、上游 HTTPS 地址和前缀。只有需要占用域名根路径时才使用 <code>/</code>。',
     '保存后打开 <code>https://你的域名&lt;前缀&gt;/</code>，确认静态资源、链接和登录流程正常。',
@@ -275,8 +326,8 @@ zh: [
   { h: '响应键值脚本', items: [
     '规则匹配上游响应的 URL。命中后，代理会从 JSON 正文、响应头、表单字段或文本捕获中读取一个值。',
     'JSON 键支持点号和下标路径，例如 <code>data.token</code> 或 <code>items[0].price</code>；响应头填头名称；表单填字段名；文本填正则，有第一个捕获组时替换捕获组，否则替换整个匹配。',
-    '脚本可使用 <code>value</code>、<code>key</code>、<code>request</code>、<code>response</code>、<code>site</code> 和 <code>console.log</code>。返回替换值；返回 undefined 保持原值，返回 null 删除该键或响应头。',
-    '示例：<code>return String(value).replace("0.5", "1.0");</code>'
+    '脚本可使用 <code>value</code>、<code>key</code>、<code>request</code>、<code>response</code>、<code>site</code> 和 <code>console.log</code>。返回替换值；返回 undefined 保持原值，返回 null 删除响应头或表单字段；JSON 会写入 null，文本会替换为空字符串。',
+    '示例：<code>return String(value).trim();</code>'
   ]},
   { h: 'URL 拦截脚本', items: [
     '每个站点都可以按 URL 规则拦截请求。命中规则后，代理完全不会访问上游，而是执行你配置的 JavaScript 并返回结果。',
@@ -292,10 +343,13 @@ zh: [
   ]}
 ]
 };
+let guideReturnModal = '';
 function renderHelp() {
   const el = $('helpContent');
   if (!el) return;
-  el.innerHTML = (HELP[LANG] || HELP.en).map(section => `<section class="help-block"><h2>${section.h}</h2><ul>${section.items.map(item => `<li>${item}</li>`).join('')}</ul></section>`).join('');
+  const sections = HELP[LANG] || HELP.en;
+  $('helpContents').innerHTML = sections.map((section, index) => `<a href="#guide-${index}">${esc(section.h)}</a>`).join('');
+  el.innerHTML = sections.map((section, index) => `<section id="guide-${index}" class="help-block"><h2>${section.h}</h2><ul>${section.items.map(item => `<li>${item}</li>`).join('')}</ul></section>`).join('');
 }
 function renderStaticText() {
   STATIC_NODES.forEach(entry => { entry.node.nodeValue = t(entry.key); });
@@ -308,8 +362,7 @@ function applyLanguage() {
   document.title = t('title');
   renderStaticText();
   renderPlaceholders();
-  const label = t('lang.button');
-  ['langButton', 'loginLangButton'].forEach(id => { const el = $(id); if (el) el.textContent = label; });
+  $('helpContents').setAttribute('aria-label', t('help.topics'));
   if ($('globalLanguage')) $('globalLanguage').value = LANG;
   if (!$('helpView').classList.contains('hidden')) renderHelp();
   if (!$('siteModal').classList.contains('hidden')) {
@@ -337,14 +390,57 @@ function applyLanguage() {
   if (site && !$('auditView').classList.contains('hidden')) $('auditTitle').textContent = t('audit.title', { name: site.name });
   if (!$('app').classList.contains('hidden') && state.sites.length) { renderSites(); refreshSelectors(); }
 }
-function toggleLanguage() {
-  LANG = LANG === 'zh' ? 'en' : 'zh';
-  localStorage.setItem('proxyAdminLang', LANG);
-  applyLanguage();
+function localizeError(message) {
+  const errors = {
+    'site id: 1-64 chars [A-Za-z0-9_-]': 'err.siteId',
+    'site name: 1-120 characters': 'err.siteName',
+    'target_url: must be a valid URL': 'err.targetUrl',
+    'target_url: must use https:': 'err.targetUrl',
+    'proxy_prefix: must be empty or a path like /internal-content': 'err.prefix',
+    'site id already exists': 'err.duplicateId',
+    'site ids must be unique': 'err.duplicateId',
+    'site proxy_prefix values must be unique': 'err.duplicatePrefix',
+    'site proxy_prefix conflicts with admin path': 'err.adminPrefix',
+    'at least one site must be enabled': 'err.enabledSite',
+    'invalid credentials': 'err.credentials',
+    'unauthorized': 'err.unauthorized',
+    'admin_username: 1-64 chars': 'err.adminUsername',
+    'admin_password: at least 12 characters': 'err.adminPassword',
+  };
+  return errors[message] ? t(errors[message]) : message;
+}
+function clearSiteValidation() {
+  ['siteId', 'siteName', 'siteTargetUrl'].forEach(id => {
+    $(id).removeAttribute('aria-invalid');
+    $(id).removeAttribute('aria-describedby');
+    $(id + 'Error')?.remove();
+  });
+}
+function validateSiteForm() {
+  clearSiteValidation();
+  function invalid(id, key) {
+    const field = $(id);
+    const hint = document.createElement('span');
+    hint.id = id + 'Error';
+    hint.className = 'status error';
+    hint.textContent = t(key);
+    field.after(hint);
+    field.setAttribute('aria-invalid', 'true');
+    field.setAttribute('aria-describedby', hint.id);
+    field.focus();
+    field.scrollIntoView({block:'center', behavior:'smooth'});
+    throw new Error(t(key));
+  }
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test($('siteId').value.trim())) invalid('siteId', 'err.siteId');
+  const name = $('siteName').value.trim();
+  if (!name || name.length > 120) invalid('siteName', 'err.siteName');
+  let url;
+  try { url = new URL($('siteTargetUrl').value.trim()); } catch { invalid('siteTargetUrl', 'err.targetUrl'); }
+  if (url.protocol !== 'https:') invalid('siteTargetUrl', 'err.targetUrl');
 }
 
 function token(){return sessionStorage.getItem(TOKEN_KEY)||''} function status(id,text,error=false){const el=$(id);el.textContent=text||'';el.classList.toggle('error',error)}
-async function api(path,options={}){let response;try{response=await fetch(ADMIN_BASE+path,{...options,headers:{'Content-Type':'application/json',...(token()?{Authorization:'Bearer '+token()}:{...{}}),...(options.headers||{})}})}catch(error){throw new Error(t('err.network',{error:error.message}))}const data=await response.json().catch(()=>({message:t('err.unexpectedHttp',{status:response.status})}));if(!response.ok)throw new Error(data.message||t('err.requestFailed',{status:response.status}));return data}
+async function api(path,options={}){let response;try{response=await fetch(ADMIN_BASE+path,{...options,headers:{'Content-Type':'application/json',...(token()?{Authorization:'Bearer '+token()}:{...{}}),...(options.headers||{})}})}catch(error){throw new Error(t('err.network',{error:error.message}))}const data=await response.json().catch(()=>({message:t('err.unexpectedHttp',{status:response.status})}));if(!response.ok)throw new Error(localizeError(data.message||t('err.requestFailed',{status:response.status})));return data}
 function showModal(id,visible){$(id).classList.toggle('hidden',!visible)} function selected(){return state.sites.find(site=>site.id===state.selectedSiteId)||state.sites[0]}
 function refreshSelectors(){for(const id of ['analyticsSite','auditSite']){$(id).innerHTML=(state.sites.length?'':`<option value="">${esc(t('analytics.select'))}</option>`)+state.sites.map(site=>`<option value="${esc(site.id)}">${esc(site.name)} (${esc(site.proxy_prefix||'/')})</option>`).join('');$(id).value=state.selectedSiteId}}
 function renderSites(){const grid=$('siteGrid');if(!state.sites.length){grid.innerHTML=`<p class="muted">${esc(t('sites.none'))}</p>`;return}grid.innerHTML=state.sites.map(site=>`<article class="site-card"><div class="actions"><h3>${esc(site.name)}</h3><span class="badge ${site.enabled?'':'off'}">${esc(t(site.enabled?'badge.enabled':'badge.disabled'))}</span>${site.audit_probe?.enabled?`<span class="badge audit">${esc(t('badge.auditOn'))}</span>`:''}${site.intercept?.enabled?`<span class="badge intercept">${esc(t('badge.interceptOn'))}</span>`:''}${(site.response_rules||[]).some(rule=>rule.enabled)?`<span class="badge response">${esc(t('badge.responseOn'))}</span>`:''}</div><p class="muted">${esc(site.target_url)}<br>${esc(t('common.prefix'))} <code>${esc(site.proxy_prefix||'/')}</code></p><div class="actions"><button data-edit="${esc(site.id)}">${esc(t('common.edit'))}</button><button class="secondary" data-analytics="${esc(site.id)}">${esc(t('common.analytics'))}</button><button class="secondary" data-audit="${esc(site.id)}">${esc(t('common.auditLogs'))}</button><button class="danger" data-delete="${esc(site.id)}">${esc(t('common.delete'))}</button></div></article>`).join('');grid.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openSite(b.dataset.edit));grid.querySelectorAll('[data-analytics]').forEach(b=>{b.onclick=()=>{state.selectedSiteId=b.dataset.analytics;switchTab('analytics')}});grid.querySelectorAll('[data-audit]').forEach(b=>{b.onclick=()=>{state.selectedSiteId=b.dataset.audit;switchTab('audit')}});grid.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>deleteSite(b.dataset.delete))}
@@ -360,8 +456,8 @@ function renumberResponseRules(){$('responseRuleList').querySelectorAll('.rule-c
 function renderResponseRuleEditor(rules=[]){const list=$('responseRuleList');list.replaceChildren();if(!rules.length){const empty=document.createElement('p');empty.className='muted';empty.dataset.responseRuleEmpty='true';empty.textContent=t('response.empty');list.append(empty);return}rules.forEach((rule,index)=>list.append(responseRuleCard(rule,index)))}
 function addResponseRule(rule={}){const list=$('responseRuleList');list.querySelector('[data-response-rule-empty]')?.remove();list.append(responseRuleCard(rule,list.querySelectorAll('.rule-card').length));renumberResponseRules()}
 function collectResponseRules(){return [...$('responseRuleList').querySelectorAll('.rule-card')].map((card,index)=>{const enabled=card.querySelector('[data-response-enabled]').value==='true';const url_pattern=card.querySelector('[data-response-pattern]').value.trim();const match_mode=card.querySelector('[data-response-mode]').value;const target=card.querySelector('[data-response-target]').value;const key=card.querySelector('[data-response-key]').value.trim();const code=card.querySelector('[data-response-code]').value;const timeout_ms=Number(card.querySelector('[data-response-timeout]').value)||1000;if(enabled&&!url_pattern)throw new Error(t('response.required',{n:index+1}));if(enabled&&!key)throw new Error(t('response.keyRequired',{n:index+1}));if(enabled&&!code.trim())throw new Error(t('response.codeRequired',{n:index+1}));if(enabled&&match_mode==='regex'){try{new RegExp(url_pattern)}catch(e){throw new Error(t('response.invalidRegex',{n:index+1,error:e.message}))}}if(enabled&&target==='text'){try{new RegExp(key)}catch(e){throw new Error(t('response.invalidTextRegex',{n:index+1,error:e.message}))}}return {enabled,url_pattern,match_mode,target,key,code,timeout_ms}})}
-function openSite(id=''){state.editingSiteId=id;const site=state.sites.find(s=>s.id===id)||{id:'',name:'',target_url:'',proxy_prefix:'/',enabled:true,audit_probe:{enabled:false},rewrite_request_headers:true,oauth_bypass_paths:[],replace_rules:[]};$('siteModalTitle').textContent=id?t('site.editTitle'):t('site.addTitle');$('siteId').value=site.id;$('siteId').disabled=!!id;$('siteName').value=site.name;$('siteTargetUrl').value=site.target_url;$('sitePrefix').value=(site.proxy_prefix===''||site.proxy_prefix==null)?'/':site.proxy_prefix;$('siteEnabled').value=String(site.enabled!==false);$('siteAudit').value=String(site.audit_probe?.enabled===true);$('siteRewriteHeaders').value=String(site.rewrite_request_headers!==false);$('siteOauth').value=(site.oauth_bypass_paths||[]).join('\n');const intercept=site.intercept||{};$('siteInterceptEnabled').value=String(intercept.enabled===true);$('siteInterceptPattern').value=intercept.url_pattern||'';$('siteInterceptMode').value=intercept.match_mode==='literal'?'literal':'regex';$('siteInterceptStatus').value=intercept.status||200;$('siteInterceptContentType').value=intercept.content_type||'application/json; charset=utf-8';$('siteInterceptTimeout').value=intercept.timeout_ms||1000;$('siteInterceptCode').value=intercept.code||'';renderRuleEditor(site.replace_rules||[]);renderResponseRuleEditor(site.response_rules||[]);status('siteSaveStatus','');showModal('siteModal',true)}
-async function saveSite(){try{const payload={id:$('siteId').value.trim(),name:$('siteName').value.trim(),target_url:$('siteTargetUrl').value.trim(),proxy_prefix:(()=>{const p=$('sitePrefix').value.trim(); return (!p||p==='/')?'':p;})(),enabled:$('siteEnabled').value==='true',audit_probe:{enabled:$('siteAudit').value==='true'},rewrite_request_headers:$('siteRewriteHeaders').value==='true',oauth_bypass_paths:$('siteOauth').value.split('\n').map(v=>v.trim()).filter(Boolean),replace_rules:collectRules(),response_rules:collectResponseRules(),intercept:{enabled:$('siteInterceptEnabled').value==='true',url_pattern:$('siteInterceptPattern').value.trim(),match_mode:$('siteInterceptMode').value,status:Number($('siteInterceptStatus').value)||200,content_type:$('siteInterceptContentType').value.trim(),timeout_ms:Number($('siteInterceptTimeout').value)||1000,code:$('siteInterceptCode').value}};if(state.editingSiteId)await api('/api/sites/'+encodeURIComponent(state.editingSiteId),{method:'PUT',body:JSON.stringify(payload)});else await api('/api/sites',{method:'POST',body:JSON.stringify(payload)});await loadSites();showModal('siteModal',false)}catch(e){status('siteSaveStatus',e.message,true)}}
+function openSite(id=''){clearSiteValidation();state.editingSiteId=id;const site=state.sites.find(s=>s.id===id)||{id:'',name:'',target_url:'',proxy_prefix:'/',enabled:true,audit_probe:{enabled:false},rewrite_request_headers:true,oauth_bypass_paths:[],replace_rules:[]};$('siteModalTitle').textContent=id?t('site.editTitle'):t('site.addTitle');$('siteId').value=site.id;$('siteId').disabled=!!id;$('siteName').value=site.name;$('siteTargetUrl').value=site.target_url;$('sitePrefix').value=(site.proxy_prefix===''||site.proxy_prefix==null)?'/':site.proxy_prefix;$('siteEnabled').value=String(site.enabled!==false);$('siteAudit').value=String(site.audit_probe?.enabled===true);$('siteRewriteHeaders').value=String(site.rewrite_request_headers!==false);$('siteOauth').value=(site.oauth_bypass_paths||[]).join('\n');const intercept=site.intercept||{};$('siteInterceptEnabled').value=String(intercept.enabled===true);$('siteInterceptPattern').value=intercept.url_pattern||'';$('siteInterceptMode').value=intercept.match_mode==='literal'?'literal':'regex';$('siteInterceptStatus').value=intercept.status||200;$('siteInterceptContentType').value=intercept.content_type||'application/json; charset=utf-8';$('siteInterceptTimeout').value=intercept.timeout_ms||1000;$('siteInterceptCode').value=intercept.code||'';renderRuleEditor(site.replace_rules||[]);renderResponseRuleEditor(site.response_rules||[]);status('siteSaveStatus','');showModal('siteModal',true)}
+async function saveSite(){try{validateSiteForm();const payload={id:$('siteId').value.trim(),name:$('siteName').value.trim(),target_url:$('siteTargetUrl').value.trim(),proxy_prefix:(()=>{const p=$('sitePrefix').value.trim(); return (!p||p==='/')?'':p;})(),enabled:$('siteEnabled').value==='true',audit_probe:{enabled:$('siteAudit').value==='true'},rewrite_request_headers:$('siteRewriteHeaders').value==='true',oauth_bypass_paths:$('siteOauth').value.split('\n').map(v=>v.trim()).filter(Boolean),replace_rules:collectRules(),response_rules:collectResponseRules(),intercept:{enabled:$('siteInterceptEnabled').value==='true',url_pattern:$('siteInterceptPattern').value.trim(),match_mode:$('siteInterceptMode').value,status:Number($('siteInterceptStatus').value)||200,content_type:$('siteInterceptContentType').value.trim(),timeout_ms:Number($('siteInterceptTimeout').value)||1000,code:$('siteInterceptCode').value}};if(state.editingSiteId)await api('/api/sites/'+encodeURIComponent(state.editingSiteId),{method:'PUT',body:JSON.stringify(payload)});else await api('/api/sites',{method:'POST',body:JSON.stringify(payload)});await loadSites();showModal('siteModal',false)}catch(e){status('siteSaveStatus',e.message,true)}}
 async function deleteSite(id){const site=state.sites.find(s=>s.id===id);if(!confirm(t('confirm.deleteSite',{name:site?.name||id})))return;try{await api('/api/sites/'+encodeURIComponent(id),{method:'DELETE'});await loadSites()}catch(e){status('siteStatus',e.message,true)}}
 async function loadGlobal(){try{const data=await api('/api/global-settings');$('globalLanguage').value=LANG;$('globalUsername').value=data.settings.admin_username;$('globalPassword').value='';$('globalAuditBytes').value=data.settings.audit_max_body_bytes;status('globalStatus','');showModal('globalModal',true)}catch(e){alert(e.message)}}
 async function saveGlobal(){try{await api('/api/global-settings',{method:'PUT',body:JSON.stringify({admin_username:$('globalUsername').value.trim(),admin_password:$('globalPassword').value,audit_max_body_bytes:Number($('globalAuditBytes').value)})});status('globalStatus',t('global.saved'));$('globalPassword').value=''}catch(e){status('globalStatus',e.message,true)}}
@@ -372,6 +468,6 @@ async function showAuditDetail(id){const site=selected();try{const record=(await
 async function deleteAudit(id){const site=selected();if(!confirm(t('confirm.deleteAudit')))return;try{await api(`/api/sites/${encodeURIComponent(site.id)}/audit-logs/${encodeURIComponent(id)}`,{method:'DELETE'});loadAudit()}catch(e){status('auditStatus',e.message,true)}}
 async function clearAudit(){const site=selected();const expected='CLEAR '+site.id;if(prompt(t('confirm.clearAudit',{name:site.name,expected}))!==expected)return;try{const result=await api(`/api/sites/${encodeURIComponent(site.id)}/audit-logs`,{method:'DELETE',body:JSON.stringify({confirm:expected})});status('auditStatus',t('audit.removed',{n:result.removed}));loadAudit()}catch(e){status('auditStatus',e.message,true)}}
 async function login(){try{status('loginStatus','');const data=await api('/api/login',{method:'POST',body:JSON.stringify({username:$('username').value.trim(),password:$('password').value})});sessionStorage.setItem(TOKEN_KEY,data.token);$('password').value='';$('loginCard').classList.add('hidden');$('app').classList.remove('hidden');await loadSites()}catch(e){status('loginStatus',e.message,true)}}
-$('loginButton').onclick=login;$('password').onkeydown=e=>{if(e.key==='Enter')login()};$('logoutButton').onclick=()=>{sessionStorage.removeItem(TOKEN_KEY);location.reload()};$('addSiteButton').onclick=()=>openSite();$('addRuleButton').onclick=()=>addRule();$('siteSave').onclick=saveSite;$('globalButton').onclick=loadGlobal;$('globalSave').onclick=saveGlobal;$('analyticsRefresh').onclick=loadAnalytics;$('analyticsExport').onclick=exportVisitors;$('auditRefresh').onclick=loadAudit;$('auditFilter').onclick=loadAudit;$('auditClear').onclick=clearAudit;$('analyticsSite').onchange=e=>{state.selectedSiteId=e.target.value;loadAnalytics()};$('auditSite').onchange=e=>{state.selectedSiteId=e.target.value;loadAudit()};document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>showModal(b.dataset.close,false));$('langButton').onclick=toggleLanguage;$('loginLangButton').onclick=toggleLanguage;$('helpRefresh').onclick=renderHelp;$('addResponseRuleButton').onclick=()=>addResponseRule();$('globalLanguage').onchange=e=>{LANG=e.target.value==='zh'?'zh':'en';localStorage.setItem('proxyAdminLang',LANG);applyLanguage()};applyLanguage();if(token()){ $('loginCard').classList.add('hidden');$('app').classList.remove('hidden');loadSites().catch(()=>{sessionStorage.removeItem(TOKEN_KEY);location.reload()})}
+$('loginButton').onclick=login;$('password').onkeydown=e=>{if(e.key==='Enter')login()};$('logoutButton').onclick=()=>{sessionStorage.removeItem(TOKEN_KEY);location.reload()};$('addSiteButton').onclick=()=>openSite();$('addRuleButton').onclick=()=>addRule();$('siteSave').onclick=saveSite;$('globalButton').onclick=loadGlobal;$('globalSave').onclick=saveGlobal;$('analyticsRefresh').onclick=loadAnalytics;$('analyticsExport').onclick=exportVisitors;$('auditRefresh').onclick=loadAudit;$('auditFilter').onclick=loadAudit;$('auditClear').onclick=clearAudit;$('analyticsSite').onchange=e=>{state.selectedSiteId=e.target.value;loadAnalytics()};$('auditSite').onchange=e=>{state.selectedSiteId=e.target.value;loadAudit()};document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>showModal(b.dataset.close,false));$('helpBack').onclick=()=>{switchTab('sites');if(guideReturnModal){showModal(guideReturnModal,true);guideReturnModal=''}};document.querySelectorAll('[data-guide]').forEach(button=>button.onclick=()=>{guideReturnModal=button.dataset.guide;showModal(guideReturnModal,false);switchTab('help')});$('addResponseRuleButton').onclick=()=>addResponseRule();$('globalLanguage').onchange=e=>{LANG=e.target.value==='zh'?'zh':'en';localStorage.setItem('proxyAdminLang',LANG);applyLanguage()};applyLanguage();if(token()){ $('loginCard').classList.add('hidden');$('app').classList.remove('hidden');loadSites().catch(()=>{sessionStorage.removeItem(TOKEN_KEY);location.reload()})}
 </script>
 </body></html>

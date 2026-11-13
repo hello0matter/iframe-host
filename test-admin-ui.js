@@ -1,0 +1,100 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const html = fs.readFileSync(path.join(__dirname, 'public/admin.html'), 'utf8');
+const source = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+new vm.Script(source);
+assert.ok(html.includes('id="helpButton"'));
+assert.ok(html.includes('id="helpContents"'));
+assert.ok(html.includes('data-guide="siteModal"'));
+assert.ok(html.includes('data-guide="globalModal"'));
+assert.ok(!html.includes('id="loginLangButton"'));
+assert.ok(!html.includes('id="langButton"'));
+assert.ok(html.includes('id="globalLanguage"'));
+
+const elements = new Map();
+let focused = '';
+let requests = 0;
+function element(id = '') {
+  const attributes = new Map();
+  return {
+    id, value: '', textContent: '', innerHTML: '',
+    setAttribute: (key, value) => attributes.set(key, value),
+    getAttribute: key => attributes.get(key),
+    removeAttribute: key => attributes.delete(key),
+    focus: () => { focused = id; },
+    scrollIntoView() {},
+    after: child => elements.set(child.id, child),
+    remove() { elements.delete(this.id); },
+    classList: { toggle() {} },
+  };
+}
+const context = vm.createContext({
+  location: { pathname: '/internal-content-admin/' },
+  localStorage: { getItem: () => 'zh' },
+  sessionStorage: { getItem: () => '' },
+  navigator: { language: 'zh-CN' },
+  NodeFilter: { SHOW_TEXT: 4 },
+  document: {
+    body: {},
+    createTreeWalker: () => ({ nextNode: () => null }),
+    getElementById(id) {
+      if (id.endsWith('Error')) return elements.get(id);
+      if (!elements.has(id)) elements.set(id, element(id));
+      return elements.get(id);
+    },
+    createElement: () => element(),
+  },
+  URL, URLSearchParams,
+  fetch: async () => {
+    requests++;
+    return { ok: false, json: async () => ({ message: 'site id: 1-64 chars [A-Za-z0-9_-]' }) };
+  },
+});
+const bootstrap = source.lastIndexOf("$('loginButton').onclick=login;");
+assert.ok(bootstrap > 0);
+vm.runInContext(source.slice(0, bootstrap), context);
+const evaluate = code => vm.runInContext(code, context);
+
+async function main() {
+  assert.equal(evaluate("Object.keys(I18N.en).sort().join()"), evaluate("Object.keys(I18N.zh).sort().join()"));
+  assert.ok(evaluate("localizeError('site id: 1-64 chars [A-Za-z0-9_-]')").includes('站点 ID'));
+  assert.ok(evaluate("localizeError('invalid credentials')").includes('用户名或密码'));
+  assert.ok(evaluate("localizeError('site id already exists')").includes('已存在'));
+  assert.equal(evaluate("localizeError('unmapped detail')"), 'unmapped detail');
+
+  for (const value of ['', '中文', '-bad', '_bad', 'a'.repeat(65), 'https://example.com']) {
+    evaluate(`$('siteId').value=${JSON.stringify(value)}`);
+    assert.throws(() => evaluate('validateSiteForm()'), /站点 ID/);
+    assert.equal(focused, 'siteId');
+    assert.equal(elements.get('siteId').getAttribute('aria-invalid'), 'true');
+    assert.ok(elements.get('siteIdError').textContent.includes('my-site'));
+  }
+  await evaluate('saveSite()');
+  assert.equal(requests, 0, 'invalid ID must be rejected before an API request');
+  assert.ok(elements.get('siteSaveStatus').textContent.includes('站点 ID'));
+
+  evaluate("$('siteId').value='My-site_01';$('siteName').value='中文名称';$('siteTargetUrl').value='https://example.com';validateSiteForm()");
+  assert.equal(elements.get('siteId').getAttribute('aria-invalid'), undefined);
+  assert.equal(elements.has('siteIdError'), false);
+  evaluate("$('siteName').value=''");
+  assert.throws(() => evaluate('validateSiteForm()'), /显示名称/);
+  assert.equal(focused, 'siteName');
+  evaluate("$('siteName').value='test';$('siteTargetUrl').value='http://example.com'");
+  assert.throws(() => evaluate('validateSiteForm()'), /HTTPS/);
+  assert.equal(focused, 'siteTargetUrl');
+
+  await assert.rejects(evaluate("api('/api/sites')"), /站点 ID/);
+  evaluate('renderHelp()');
+  assert.ok(elements.get('helpContents').innerHTML.includes('href="#guide-0"'));
+  assert.ok(elements.get('helpContent').innerHTML.includes('全局设置与中英文切换'));
+  assert.ok(elements.get('helpContent').innerHTML.includes('审计'));
+  evaluate("LANG='en';renderHelp()");
+  assert.ok(elements.get('helpContent').innerHTML.includes('Global settings and language'));
+  assert.ok(evaluate("localizeError('site id: 1-64 chars [A-Za-z0-9_-]')").includes('Site ID'));
+  assert.equal(evaluate('HELP.zh.length'), evaluate('HELP.en.length'));
+  console.log('PASS: admin guide entries, bilingual errors, field validation and guide contents.');
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });
