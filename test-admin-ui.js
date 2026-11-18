@@ -112,6 +112,17 @@ async function main() {
   }
   evaluate('loadCaptchaForm({})');
   assert.equal(evaluate('collectCaptchaForm().mode'), 'native_first');
+  assert.equal(evaluate("$('siteCaptchaAdvanced').open"), false);
+  assert.match(html, /<details id="siteCaptchaAdvanced"/);
+  assert.match(html, /class="captcha-billing"/);
+  assert.equal((html.match(/id="captchaStatusButton"/g) || []).length, 1);
+  assert.equal((html.match(/id="siteCaptchaMode"/g) || []).length, 1);
+  for (const config of [{ response_selector: '#token' }, { response_field_name: 'verification' }, { callback_path: 'app.onVerified' }]) {
+    evaluate(`loadCaptchaForm(${JSON.stringify(config)})`);
+    assert.equal(evaluate("$('siteCaptchaAdvanced').open"), true);
+  }
+  evaluate('loadCaptchaForm({})');
+  assert.equal(evaluate("$('siteCaptchaAdvanced').open"), false);
   assert.match(html, /id="siteCaptchaLimit"[^>]*min="1"[^>]*max="100"/);
   for (const lang of ['zh', 'en']) {
     evaluate(`LANG='${lang}'`);
