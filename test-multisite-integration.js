@@ -217,7 +217,11 @@ async function main() {
   assert.ok(captchaClient.text.includes('__ihCaptchaInstalled'));
   const privateCaptchaStatus = await request(apiUrl('/api/sites/default/captcha-status'));
   assert.strictEqual(privateCaptchaStatus.response.status, 401);
-  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV' } }) });
+  const adapterSaved = await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV', mode: 'provider_only', response_field_name: 'verification-token', callback_path: 'app.onVerified', result_ttl_seconds: 60 } }) });
+  assert.strictEqual(adapterSaved.site.captcha.mode, 'provider_only');
+  assert.strictEqual(adapterSaved.site.captcha.response_field_name, 'verification-token');
+  const badAdapter = await request(apiUrl('/api/sites/default'), { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ captcha: { callback_path: 'constructor.constructor' } }) });
+  assert.strictEqual(badAdapter.response.status, 400);
   const captchaStatus = await api('/api/sites/default/captcha-status', token);
   assert.strictEqual(captchaStatus.data.key_configured, false);
   const captchaPage = await request(publicBase + '/one/page.html');
@@ -225,6 +229,10 @@ async function main() {
   const captchaCookie = captchaPage.response.headers.get('set-cookie').match(/ih_captcha_browser=[a-f0-9]+/)[0];
   const captchaConfig = JSON.parse(Buffer.from(captchaPage.text.match(/data-captcha="([A-Za-z0-9_-]+)"/)[1], 'base64url').toString());
   assert.strictEqual(captchaConfig.page, '/one/login');
+  assert.strictEqual(captchaConfig.mode, 'provider_only');
+  assert.strictEqual(captchaConfig.responseFieldName, 'verification-token');
+  assert.strictEqual(captchaConfig.callbackPath, 'app.onVerified');
+  assert.strictEqual(captchaConfig.resultTtl, 60);
   const captchaBody = JSON.stringify({ ticket: captchaConfig.ticket, metadata: { sitekey: 'public-integration-key' } });
   const postCaptcha = headers => request(publicBase + '/__ih/captcha/default', { method: 'POST', headers: { 'content-type': 'application/json', cookie: captchaCookie, ...headers }, body: captchaBody });
   assert.strictEqual((await postCaptcha({})).response.status, 403);

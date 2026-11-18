@@ -42,7 +42,12 @@
         "site_key": "",
         "page_path": "/login",
         "timeout_seconds": 120,
-        "max_tasks_per_hour": 3
+        "max_tasks_per_hour": 3,
+        "mode": "native_first",
+        "response_selector": "",
+        "response_field_name": "",
+        "callback_path": "",
+        "result_ttl_seconds": 120
       },
       "intercept": {
         "enabled": false,

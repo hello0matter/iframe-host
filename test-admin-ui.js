@@ -46,6 +46,7 @@ const context = vm.createContext({
       return elements.get(id);
     },
     createElement: () => element(),
+    querySelector: selector => { if (selector === '[') throw new Error('invalid selector'); return null; },
   },
   URL, URLSearchParams,
   fetch: async () => {
@@ -95,6 +96,15 @@ async function main() {
   assert.ok(elements.get('helpContent').innerHTML.includes('Global settings and language'));
   assert.ok(evaluate("localizeError('site id: 1-64 chars [A-Za-z0-9_-]')").includes('Site ID'));
   assert.equal(evaluate('HELP.zh.length'), evaluate('HELP.en.length'));
+  evaluate('loadCaptchaForm({})');
+  assert.equal(evaluate('collectCaptchaForm().mode'), 'native_first');
+  evaluate("$('siteCaptchaMode').value='provider_only';$('siteCaptchaSelector').value='#token';$('siteCaptchaCallback').value='app.onVerified';$('siteCaptchaFieldName').value='verification_token'");
+  assert.equal(evaluate('collectCaptchaForm().response_selector'), '#token');
+  assert.equal(evaluate('collectCaptchaForm().callback_path'), 'app.onVerified');
+  evaluate("$('siteCaptchaSelector').value='['");
+  assert.throws(() => evaluate('collectCaptchaForm()'), /CSS selector/);
+  evaluate("$('siteCaptchaSelector').value='';$('siteCaptchaCallback').value='constructor.constructor'");
+  assert.throws(() => evaluate('collectCaptchaForm()'), /global function path/);
   console.log('PASS: admin guide entries, bilingual errors, field validation and guide contents.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

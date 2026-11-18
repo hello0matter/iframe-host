@@ -8,22 +8,70 @@
   var fetchRequest = window.fetch.bind(window);
   var used = false;
   var expires = Date.now() + 290000;
+  var widgets = new Map();
+  var sequence = 0;
   var isChinese = /^zh/i.test(navigator.language || '');
   function message(node, code) {
-    var zh = { waiting: '正在等待验证码服务，可能产生费用…', ready: '验证码已准备，请尽快登录。', CAPTCHA_KEY_MISSING: '服务器尚未配置验证码服务密钥。', CAPTCHA_HOURLY_LIMIT: '本站本小时验证码调用已达上限。', CAPTCHA_BUSY: '验证码服务忙，请稍后重新打开页面。', CAPTCHA_TIMEOUT: '验证码服务超时；不会自动重试扣费。', CAPTCHA_TICKET_INVALID: '验证码会话已过期，请刷新页面。' };
-    var en = { waiting: 'Waiting for verification service; charges may apply…', ready: 'Verification is ready. Please sign in promptly.', CAPTCHA_KEY_MISSING: 'Verification service key is not configured.', CAPTCHA_HOURLY_LIMIT: 'Hourly verification task limit reached.', CAPTCHA_BUSY: 'Verification service is busy. Reopen this page later.', CAPTCHA_TIMEOUT: 'Verification timed out. No automatic paid retry.', CAPTCHA_TICKET_INVALID: 'Verification session expired. Refresh this page.' };
+    var zh = { waiting: '正在等待验证码服务，可能产生费用…', ready: '验证码已准备，请尽快登录。', expired: '验证码结果已失效，请刷新后重新验证；不会自动重试扣费。', reset: '验证码已重置；本页不会再次自动付费，请刷新后重新验证。', CAPTCHA_ADAPTER_INVALID: '验证码适配参数无效：请检查字段选择器和全局回调。', CAPTCHA_KEY_MISSING: '服务器尚未配置验证码服务密钥。', CAPTCHA_HOURLY_LIMIT: '本站本小时验证码调用已达上限。', CAPTCHA_BUSY: '验证码服务忙，请稍后重新打开页面。', CAPTCHA_TIMEOUT: '验证码服务超时；不会自动重试扣费。', CAPTCHA_TICKET_INVALID: '验证码会话已过期，请刷新页面。' };
+    var en = { waiting: 'Waiting for verification service; charges may apply…', ready: 'Verification is ready. Please sign in promptly.', expired: 'Verification result expired. Reload to verify again; no automatic paid retry.', reset: 'Verification reset. No further automatic paid task on this page; reload to verify again.', CAPTCHA_ADAPTER_INVALID: 'Invalid verification adapter: check the field selector and global callback.', CAPTCHA_KEY_MISSING: 'Verification service key is not configured.', CAPTCHA_HOURLY_LIMIT: 'Hourly verification task limit reached.', CAPTCHA_BUSY: 'Verification service is busy. Reopen this page later.', CAPTCHA_TIMEOUT: 'Verification timed out. No automatic paid retry.', CAPTCHA_TICKET_INVALID: 'Verification session expired. Refresh this page.' };
     node.textContent = (isChinese ? zh : en)[code] || (isChinese ? '验证码服务失败，请刷新后手动验证，或联系管理员。' : 'Verification service failed. Reload for manual verification or contact the administrator.');
   }
-  async function solve(container, options, nativeState) {
-    if (used || nativeState.ready || !container.isConnected) return;
+  function callback(value) {
+    if (typeof value === 'function') return { fn: value, owner: window };
+    if (typeof value !== 'string' || !/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(value)) return null;
+    var parts = value.split('.');
+    if (parts.some(function (key) { return ['__proto__', 'prototype', 'constructor'].includes(key); })) return null;
+    var owner = window;
+    for (var i = 0; i < parts.length - 1; i++) { owner = owner && owner[parts[i]]; }
+    var fn = owner && owner[parts[parts.length - 1]];
+    return typeof fn === 'function' ? { fn: fn, owner: owner } : null;
+  }
+  function invoke(value, token) {
+    var cb = callback(value);
+    if (cb) return cb.fn.call(cb.owner, token);
+  }
+  function alive(state) { return !state.stopped && state.node.isConnected; }
+  function valid(state) { return alive(state) && !!state.token && Date.now() < state.until; }
+  function fields(state) {
+    if (config.responseSelector) {
+      var selected = Array.from(document.querySelectorAll(config.responseSelector));
+      if (!selected.length || selected.some(function (field) { return !/^(INPUT|TEXTAREA)$/.test(field.tagName) || (field.tagName === 'INPUT' && !['hidden', 'text'].includes(field.type)); })) throw new Error('CAPTCHA_ADAPTER_INVALID');
+      return selected;
+    }
+    if (state.options['response-field'] === false && !config.responseFieldName) return [];
+    var name = config.responseFieldName || state.options['response-field-name'] || 'cf-turnstile-response';
+    var field = Array.from(state.node.querySelectorAll('input')).find(function (item) { return item.name === name; });
+    if (!field) { field = document.createElement('input'); field.type = 'hidden'; field.name = name; state.node.appendChild(field); }
+    return [field];
+  }
+  function write(field, value) {
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function invalidate(state, reason, notify) {
+    if (state.stopped) return;
+    state.stopped = true;
+    var token = state.token;
+    state.token = '';
+    (state.fields || []).forEach(function (field) { if (field.value === token) write(field, ''); });
+    if (state.notice) message(state.notice, reason);
+    if (notify) { try { invoke(state.options['expired-callback']); } catch (_) {} }
+  }
+  async function solve(state) {
+    if (used || state.nativeReady || !alive(state)) return;
     used = true;
+    var options = state.options;
     var notice = document.createElement('p');
     notice.setAttribute('role', 'status');
-    container.after(notice);
+    state.node.after(notice);
+    state.notice = notice;
     message(notice, 'waiting');
     var deadline = Date.now() + (config.timeout + 15) * 1000;
     try {
-      while (Date.now() < deadline && container.isConnected && !nativeState.ready) {
+      if (config.callbackPath && !callback(config.callbackPath)) throw new Error('CAPTCHA_ADAPTER_INVALID');
+      if (config.responseSelector) fields(state);
+      while (Date.now() < deadline && alive(state) && !state.nativeReady) {
         var response = await fetchRequest('/__ih/captcha/' + encodeURIComponent(config.site), {
           method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ ticket: config.ticket, metadata: { sitekey: options.sitekey, action: options.action || '' } }),
@@ -31,40 +79,70 @@
         });
         var result = await response.json();
         if (!response.ok || result.status === 'failed') throw new Error(result.error || 'CAPTCHA_PROVIDER_UNAVAILABLE');
-        if (!container.isConnected || nativeState.ready) return;
+        if (!alive(state) || state.nativeReady) return;
         if (result.status === 'ready') {
           if (typeof result.token !== 'string' || !result.token) throw new Error('CAPTCHA_PROVIDER_BAD_RESPONSE');
-          if (options['response-field'] !== false) {
-            var name = options['response-field-name'] || 'cf-turnstile-response';
-            var field = Array.from(container.querySelectorAll('input')).find(function (item) { return item.name === name; });
-            if (!field) { field = document.createElement('input'); field.type = 'hidden'; field.name = name; container.appendChild(field); }
-            field.value = result.token;
-            field.dispatchEvent(new Event('input', { bubbles: true }));
-            field.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-          options.callback(result.token);
+          state.fields = fields(state);
+          state.token = result.token;
+          state.providerIssued = true;
+          state.until = Date.now() + Math.max(30, Math.min(240, Number(config.resultTtl) || 120)) * 1000;
+          state.fields.forEach(function (field) { write(field, result.token); });
+          invoke(options.callback, result.token);
+          if (config.callbackPath && config.callbackPath !== options.callback) invoke(config.callbackPath, result.token);
+          if (!valid(state)) return;
           message(notice, 'ready');
+          setTimeout(function () { invalidate(state, 'expired', true); }, Math.max(0, state.until - Date.now()));
           return;
         }
         await new Promise(function (resolve) { setTimeout(resolve, 2000); });
       }
-      if (!nativeState.ready) throw new Error('CAPTCHA_TIMEOUT');
-    } catch (error) { message(notice, error.message); }
-    finally { if (nativeState.ready || !container.isConnected) notice.remove(); }
+      if (!state.nativeReady && alive(state)) throw new Error('CAPTCHA_TIMEOUT');
+    } catch (error) {
+      invalidate(state, error.message, !!state.token);
+      try { invoke(options['error-callback'], 'IH_SERVICE_FAILED'); } catch (_) {}
+    } finally { if (state.nativeReady || !state.node.isConnected) notice.remove(); }
   }
   function wrap() {
     var api = window.turnstile;
     if (!api || typeof api.render !== 'function' || api.render.__ihWrapped) return;
     var render = api.render;
+    function find(value) {
+      if (widgets.has(value)) return widgets.get(value);
+      var node;
+      try { node = typeof value === 'string' ? document.querySelector(value) : value; } catch (_) {}
+      for (var state of widgets.values()) if (value == null || state.node === node) return state;
+      return null;
+    }
+    ['getResponse', 'isExpired', 'reset', 'remove', 'execute'].forEach(function (name) {
+      var original = api[name];
+      api[name] = function (id) {
+        var state = find(id);
+        if (state) {
+          if (name === 'getResponse' && (state.virtual || state.providerIssued)) return valid(state) ? state.token : '';
+          if (name === 'isExpired' && (state.virtual || state.providerIssued)) return !valid(state);
+          if (name === 'reset' || name === 'remove') {
+            invalidate(state, 'reset', name === 'reset');
+            if (name === 'remove') { if (state.notice) state.notice.remove(); widgets.delete(state.id); }
+          }
+          if (state.virtual) return;
+        }
+        if (typeof original === 'function') return original.apply(this, arguments);
+      };
+    });
     function wrapped(container, options) {
-      var node = typeof container === 'string' ? document.querySelector(container) : container;
-      var eligible = options && options.sitekey === config.sitekey && typeof options.callback === 'function' && !options.cData && !options.chlPageData && location.pathname.replace(/\/+$/, '') === config.page.replace(/\/+$/, '') && Date.now() < expires;
+      var node;
+      try { node = typeof container === 'string' ? document.querySelector(container) : container; } catch (_) { return render.apply(this, arguments); }
+      var eligible = options && options.sitekey === config.sitekey && (callback(options.callback) || callback(config.callbackPath) || config.responseSelector || config.responseFieldName) && !options.cData && !options.chlPageData && location.pathname.replace(/\/+$/, '') === config.page.replace(/\/+$/, '') && Date.now() < expires;
       if (!eligible || !node) return render.apply(this, arguments);
-      var nativeState = { ready: false };
-      var next = Object.assign({}, options, { callback: function (token) { nativeState.ready = true; return options.callback(token); } });
-      var widget = render.call(this, container, next);
-      setTimeout(function () { void solve(node, options, nativeState); }, 10000);
-      return widget;
+      var state = { node: node, options: options, nativeReady: false, token: '', until: 0, stopped: false, virtual: config.mode === 'provider_only' };
+      var next = Object.assign({}, options, { callback: function (token) { if (valid(state) || state.stopped) return; state.nativeReady = true; return invoke(options.callback, token); } });
+      ['error-callback', 'expired-callback', 'timeout-callback', 'unsupported-callback'].forEach(function (name) {
+        next[name] = function (value) { if (!valid(state) && !state.stopped) return invoke(options[name], value); };
+      });
+      state.id = state.virtual ? 'ih-provider-' + (++sequence) : render.call(this, container, next);
+      widgets.set(state.id, state);
+      setTimeout(function () { void solve(state); }, state.virtual ? 0 : 10000);
+      return state.id;
     }
     wrapped.__ihWrapped = true;
     api.render = wrapped;
@@ -73,8 +151,12 @@
     if (event.target.tagName === 'SCRIPT' && /^https:\/\/challenges\.cloudflare\.com\/turnstile\//.test(event.target.src || '')) wrap();
   }, true);
   var timer = setInterval(function () {
+    widgets.forEach(function (state, id) {
+      if (!state.node.isConnected) { invalidate(state, 'reset', false); widgets.delete(id); }
+      else if (state.token && Date.now() >= state.until) invalidate(state, 'expired', true);
+    });
     wrap();
-    if (Date.now() > expires) clearInterval(timer);
+    if (Date.now() > expires && !Array.from(widgets.values()).some(function (state) { return !state.stopped && state.token; })) clearInterval(timer);
   }, 100);
   wrap();
 })();

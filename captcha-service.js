@@ -18,6 +18,11 @@ function normalizeCaptcha(raw = {}) {
   const page_path = raw.page_path || '/login';
   const timeout_seconds = Number(raw.timeout_seconds ?? 120);
   const max_tasks_per_hour = Number(raw.max_tasks_per_hour ?? 3);
+  const mode = raw.mode ?? 'native_first';
+  const response_selector = raw.response_selector ?? '';
+  const response_field_name = raw.response_field_name ?? '';
+  const callback_path = raw.callback_path ?? '';
+  const result_ttl_seconds = Number(raw.result_ttl_seconds ?? 120);
   if (provider !== '2captcha') throw new Error('captcha: unsupported provider');
   if (!/^[A-Z][A-Z0-9_]{0,79}$/.test(api_key_env)) throw new Error('captcha: invalid API key environment variable');
   if (site_key && !/^[A-Za-z0-9_-]{5,200}$/.test(site_key)) throw new Error('captcha: invalid site key');
@@ -25,7 +30,12 @@ function normalizeCaptcha(raw = {}) {
   if (typeof page_path !== 'string' || !/^\/(?!\/)[A-Za-z0-9/_~.-]*$/.test(page_path) || page_path.split('/').some(p => p === '.' || p === '..')) throw new Error('captcha: invalid page path');
   if (!Number.isInteger(timeout_seconds) || timeout_seconds < 30 || timeout_seconds > 180) throw new Error('captcha: timeout must be 30-180 seconds');
   if (!Number.isInteger(max_tasks_per_hour) || max_tasks_per_hour < 1 || max_tasks_per_hour > 20) throw new Error('captcha: hourly limit must be 1-20');
-  return { enabled, provider, api_key_env, site_key, page_path, timeout_seconds, max_tasks_per_hour };
+  if (!['native_first', 'provider_only'].includes(mode)) throw new Error('captcha: invalid compatibility mode');
+  if (typeof response_selector !== 'string' || response_selector.length > 500 || /[\x00-\x1f]/.test(response_selector)) throw new Error('captcha: invalid response selector');
+  if (typeof response_field_name !== 'string' || (response_field_name && !/^[A-Za-z_][A-Za-z0-9_.:-]{0,127}$/.test(response_field_name))) throw new Error('captcha: invalid response field name');
+  if (typeof callback_path !== 'string' || (callback_path && (!/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(callback_path) || callback_path.length > 200 || callback_path.split('.').some(key => ['__proto__', 'prototype', 'constructor'].includes(key))))) throw new Error('captcha: invalid callback path');
+  if (!Number.isInteger(result_ttl_seconds) || result_ttl_seconds < 30 || result_ttl_seconds > 240) throw new Error('captcha: result TTL must be 30-240 seconds');
+  return { enabled, provider, api_key_env, site_key, page_path, timeout_seconds, max_tasks_per_hour, mode, response_selector, response_field_name, callback_path, result_ttl_seconds };
 }
 
 function cookieValue(req) {
@@ -158,7 +168,7 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
 
 function injectCaptcha(html, site, ticket) {
   if (!ticket) return html;
-  const config = { site: site.id, sitekey: site.captcha.site_key, page: (site.proxyPrefix || '') + site.captcha.page_path, ticket, timeout: site.captcha.timeout_seconds };
+  const config = { site: site.id, sitekey: site.captcha.site_key, page: (site.proxyPrefix || '') + site.captcha.page_path, ticket, timeout: site.captcha.timeout_seconds, mode: site.captcha.mode, responseSelector: site.captcha.response_selector, responseFieldName: site.captcha.response_field_name, callbackPath: site.captcha.callback_path, resultTtl: site.captcha.result_ttl_seconds };
   const encoded = Buffer.from(JSON.stringify(config)).toString('base64url');
   const tag = `<script src="/__ih/captcha/client.js" data-captcha="${encoded}"></script>`;
   return /<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, match => match + tag) : tag + html;

@@ -36,6 +36,16 @@ function rejects(fn, code) { assert.throws(fn, error => error.code === code); }
 async function main() {
   assert.equal(normalizeCaptcha().enabled, false);
   assert.equal(normalizeCaptcha().max_tasks_per_hour, 3);
+  assert.equal(normalizeCaptcha().mode, 'native_first');
+  assert.equal(normalizeCaptcha().result_ttl_seconds, 120);
+  for (const raw of [{ mode: 'force-button' }, { response_selector: [] }, { response_selector: '\n' }, { response_field_name: 'invalid name' }, { callback_path: 'alert(token)' }, { callback_path: 'app.__proto__.callback' }, { callback_path: 'constructor.constructor' }, { result_ttl_seconds: 999 }]) assert.throws(() => normalizeCaptcha(raw));
+  const advanced = normalizeCaptcha({ mode: 'provider_only', response_selector: '#my-token', response_field_name: 'my-token', callback_path: 'app.verified', result_ttl_seconds: 60 });
+  const injected = injectCaptcha('<head></head>', { id: 'advanced', proxyPrefix: '/test', captcha: advanced }, 'test-ticket');
+  const config = JSON.parse(Buffer.from(injected.match(/data-captcha="([^"]+)"/)[1], 'base64url').toString());
+  assert.equal(config.mode, 'provider_only');
+  assert.equal(config.responseSelector, '#my-token');
+  assert.equal(config.callbackPath, 'app.verified');
+  assert.equal(config.resultTtl, 60);
   for (const raw of [null, [], { enabled: true }, { provider: 'other' }, { api_key_env: 'secret-value-with-hyphens' }, { timeout_seconds: 500 }, { max_tasks_per_hour: 0 }, { page_path: '//elsewhere/' }, { page_path: '/../login' }]) {
     assert.throws(() => normalizeCaptcha(raw));
   }
