@@ -220,7 +220,7 @@ async function main() {
   assert.ok(captchaClient.text.includes('__ihCaptchaInstalled'));
   const privateCaptchaStatus = await request(apiUrl('/api/sites/default/captcha-status'));
   assert.strictEqual(privateCaptchaStatus.response.status, 401);
-  const adapterSaved = await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ debug_enabled: true, captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV', max_tasks_per_hour: 100, waiting_message: '请稍候', ready_message: '验证完成 ✅', mode: 'provider_only', response_field_name: 'verification-token', callback_path: 'app.onVerified', result_ttl_seconds: 60 } }) });
+  const adapterSaved = await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ debug_enabled: true, captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV', max_tasks_per_hour: 100, waiting_message: '请稍候', ready_message: '验证完成 ✅', expired_message: '验证已过期', busy_message: '已有验证任务，请等待', mode: 'provider_only', response_field_name: 'verification-token', callback_path: 'app.onVerified', result_ttl_seconds: 60 } }) });
   assert.strictEqual(adapterSaved.site.captcha.mode, 'provider_only');
   assert.strictEqual(adapterSaved.site.captcha.max_tasks_per_hour, 100);
   const savedWithLimit = await api('/api/sites/default', token);
@@ -241,7 +241,12 @@ async function main() {
   assert.strictEqual(captchaConfig.responseFieldName, 'verification-token');
   assert.strictEqual(captchaConfig.callbackPath, 'app.onVerified');
   assert.strictEqual(captchaConfig.resultTtl, 60);
-  assert.deepStrictEqual(captchaConfig.messages, { waiting: '请稍候', ready: '验证完成 ✅' });
+  assert.strictEqual(captchaConfig.messages.waiting, '请稍候');
+  assert.strictEqual(captchaConfig.messages.ready, '验证完成 ✅');
+  assert.strictEqual(captchaConfig.messages.expired, '验证已过期');
+  assert.strictEqual(captchaConfig.messages.CAPTCHA_BUSY, '已有验证任务，请等待');
+  assert.strictEqual(savedWithLimit.site.captcha.expired_message, '验证已过期');
+  assert.strictEqual(savedWithLimit.site.captcha.busy_message, '已有验证任务，请等待');
   assert.strictEqual(savedWithLimit.site.captcha.ready_message, '验证完成 ✅');
   const captchaBody = JSON.stringify({ ticket: captchaConfig.ticket, metadata: { sitekey: 'public-integration-key' } });
   const postCaptcha = headers => request(publicBase + '/__ih/captcha/default', { method: 'POST', headers: { 'content-type': 'application/json', cookie: captchaCookie, ...headers }, body: captchaBody });

@@ -4,7 +4,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(require.resolve('./public/captcha-client.js'), 'utf8');
 
-async function scenario({ native = false, unsupported = false, disconnected = false, failed = false, wrongPage = false, nativeDuringFetch = false, config: overrides = {}, selectorInvalid = false, callbackThrows = false, resetDuringFetch = false, noCallback = false } = {}) {
+async function scenario({ native = false, unsupported = false, disconnected = false, failed = false, failureCode = 'CAPTCHA_HOURLY_LIMIT', wrongPage = false, nativeDuringFetch = false, config: overrides = {}, selectorInvalid = false, callbackThrows = false, resetDuringFetch = false, noCallback = false } = {}) {
   const timeouts = [];
   const requests = [];
   const diagnostics = [];
@@ -35,7 +35,7 @@ async function scenario({ native = false, unsupported = false, disconnected = fa
       requests.push({ url, body: JSON.parse(request.body) });
       if (nativeDuringFetch) rendered.callback('native-result');
       if (resetDuringFetch) window.turnstile.reset('ih-provider-1');
-      return { ok: !failed, json: async () => failed ? { error: 'CAPTCHA_HOURLY_LIMIT' } : { status: 'ready', token: 'mock-result' } };
+      return { ok: !failed, json: async () => failed ? { error: failureCode } : { status: 'ready', token: 'mock-result' } };
     },
     turnstile: {
       render: (container, options) => { rendered = options; renderCount++; return 'widget-id'; },
@@ -82,6 +82,24 @@ async function main() {
   assert.ok(literal.noticeMessages.includes('<img src=x onerror=alert(1)>'));
   const blank = await scenario({ config: { messages: { ready: '   ', waiting: '' } } });
   assert.ok(blank.noticeMessages.includes('Verification complete. Please click Sign in.'));
+  for (const code of Object.values(require('./captcha-service').CAPTCHA_MESSAGE_FIELDS).filter(code => code.startsWith('CAPTCHA_'))) {
+    const failedCustom = await scenario({ failed: true, failureCode: code, config: { messages: { [code]: '自定义错误：' + code } } });
+    assert.ok(failedCustom.noticeMessages.includes('自定义错误：' + code), code);
+    assert.deepEqual(failedCustom.callbacks, []);
+    assert.equal(failedCustom.requests.length, 1);
+    assert.equal(failedCustom.inputs.length, 0);
+  }
+  const expiry = await scenario({ config: { messages: { expired: '验证已过期，请重新验证' } } });
+  await expiry.advance(120001);
+  assert.ok(expiry.noticeMessages.includes('验证已过期，请重新验证'));
+  assert.equal(expiry.inputs[0].value, '');
+  assert.equal(expiry.requests.length, 1);
+  const resetMessage = await scenario({ config: { messages: { reset: '请重新打开页面验证' } } });
+  resetMessage.api.reset(resetMessage.id);
+  assert.ok(resetMessage.noticeMessages.includes('请重新打开页面验证'));
+  assert.equal(resetMessage.inputs[0].value, '');
+  const fallback = await scenario({ failed: true, failureCode: 'CAPTCHA_UNKNOWN', config: { messages: { error: '未分类失败，请联系管理员' } } });
+  assert.ok(fallback.noticeMessages.includes('未分类失败，请联系管理员'));
   const ready = await scenario();
   assert.equal(ready.requests.length, 1);
   assert.equal(ready.requests[0].url, '/__ih/captcha/test');

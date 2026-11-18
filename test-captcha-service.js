@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { normalizeCaptcha, createCaptchaService, injectCaptcha } = require('./captcha-service');
+const { CAPTCHA_MESSAGE_FIELDS, normalizeCaptcha, createCaptchaService, injectCaptcha } = require('./captcha-service');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ih-captcha-test-'));
 const key = 'unit-test-placeholder-not-a-real-api-key';
@@ -45,6 +45,15 @@ async function main() {
   assert.equal(normalizeCaptcha().mode, 'native_first');
   assert.equal(normalizeCaptcha().result_ttl_seconds, 120);
   for (const raw of [{ mode: 'force-button' }, { response_selector: [] }, { response_selector: '\n' }, { response_field_name: 'invalid name' }, { callback_path: 'alert(token)' }, { callback_path: 'app.__proto__.callback' }, { callback_path: 'constructor.constructor' }, { result_ttl_seconds: 999 }]) assert.throws(() => normalizeCaptcha(raw));
+  for (const [field, code] of Object.entries(CAPTCHA_MESSAGE_FIELDS)) {
+    assert.equal(normalizeCaptcha()[field], '');
+    for (const bad of [[], 123, 'x'.repeat(201), 'bad\nmessage']) assert.throws(() => normalizeCaptcha({ [field]: bad }), /invalid display message/);
+    const captcha = normalizeCaptcha({ [field]: ' 提示中文 ✅ ' });
+    assert.equal(captcha[field], '提示中文 ✅');
+    const markup = injectCaptcha('<head></head>', { id: 'custom', captcha }, 'ticket');
+    const settings = JSON.parse(Buffer.from(markup.match(/data-captcha="([^"]+)"/)[1], 'base64url').toString());
+    assert.equal(settings.messages[code], '提示中文 ✅');
+  }
   assert.equal(normalizeCaptcha().waiting_message, '');
   assert.equal(normalizeCaptcha().ready_message, '');
   for (const raw of [{ waiting_message: [] }, { ready_message: 'x'.repeat(201) }, { ready_message: 'bad\nmessage' }]) assert.throws(() => normalizeCaptcha(raw), /invalid display message/);
@@ -52,7 +61,8 @@ async function main() {
   const injected = injectCaptcha('<head></head>', { id: 'advanced', proxyPrefix: '/test', captcha: advanced }, 'test-ticket');
   const config = JSON.parse(Buffer.from(injected.match(/data-captcha="([^"]+)"/)[1], 'base64url').toString());
   assert.equal(config.mode, 'provider_only');
-  assert.deepEqual(config.messages, { waiting: '请稍候', ready: '验证完成 ✅' });
+  assert.equal(config.messages.waiting, '请稍候');
+  assert.equal(config.messages.ready, '验证完成 ✅');
   assert.equal(config.responseSelector, '#my-token');
   assert.equal(config.callbackPath, 'app.verified');
   assert.equal(config.resultTtl, 60);
@@ -86,7 +96,7 @@ async function main() {
   rejects(() => diagnostic.service.report(diagnostic.site, diagnostic.req, { ticket: diagnostic.ticket, event: 'ready' }), 'CAPTCHA_TICKET_INVALID');
   const f = fixture('normal');
   const body = { ticket: f.ticket, metadata: f.metadata };
-  f.site.captcha.ready_message = '仅修改文字，不使已有票据失效';
+  for (const field of Object.keys(CAPTCHA_MESSAGE_FIELDS)) f.site.captcha[field] = '仅修改文字，不使已有票据失效';
   const markup = injectCaptcha('<html><head><script src="/app.js"></script></head></html>', f.site, f.ticket);
   assert.ok(markup.indexOf('/__ih/captcha/client.js') < markup.indexOf('/app.js'));
   assert.ok(!markup.includes(key));

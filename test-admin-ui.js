@@ -142,6 +142,17 @@ async function main() {
   assert.equal(elements.get('siteCaptchaReadyMessage').value, '可以登录');
   evaluate('loadCaptchaForm({})');
 
+  assert.equal(evaluate("$('siteCaptchaOtherMessages').open"), false);
+  const extras = JSON.parse(evaluate('JSON.stringify(CAPTCHA_EXTRA_MESSAGES)'));
+  for (const name of extras) {
+    assert.ok(html.includes('id="siteCaptchaMessage_' + name + '"'));
+    evaluate(`loadCaptchaForm(${JSON.stringify({ [name + '_message']: '提示 ' + name })})`);
+    assert.equal(evaluate('collectCaptchaForm()')[name + '_message'], '提示 ' + name);
+    assert.equal(evaluate("$('siteCaptchaOtherMessages').open"), true);
+    evaluate(`$('siteCaptchaMessage_${name}').value='x'.repeat(201)`);
+    assert.throws(() => evaluate('collectCaptchaForm()'), /200/);
+  }
+  evaluate('loadCaptchaForm({})');
   assert.equal(evaluate("$('siteCaptchaAdvanced').open"), false);
   assert.match(html, /<details id="siteCaptchaAdvanced"/);
   assert.match(html, /class="captcha-billing"/);

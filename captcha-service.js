@@ -4,6 +4,7 @@ const path = require('node:path');
 
 const COOKIE = 'ih_captcha_browser';
 const TTL = 5 * 60 * 1000;
+const CAPTCHA_MESSAGE_FIELDS = Object.freeze({"waiting_message": "waiting", "ready_message": "ready", "expired_message": "expired", "reset_message": "reset", "busy_message": "CAPTCHA_BUSY", "hourly_limit_message": "CAPTCHA_HOURLY_LIMIT", "timeout_message": "CAPTCHA_TIMEOUT", "ticket_invalid_message": "CAPTCHA_TICKET_INVALID", "adapter_invalid_message": "CAPTCHA_ADAPTER_INVALID", "key_missing_message": "CAPTCHA_KEY_MISSING", "callback_failed_message": "CAPTCHA_CALLBACK_FAILED", "provider_rejected_message": "CAPTCHA_PROVIDER_REJECTED", "provider_unavailable_message": "CAPTCHA_PROVIDER_UNAVAILABLE", "provider_bad_response_message": "CAPTCHA_PROVIDER_BAD_RESPONSE", "budget_storage_message": "CAPTCHA_BUDGET_STORAGE_ERROR", "disabled_message": "CAPTCHA_DISABLED", "internal_error_message": "CAPTCHA_INTERNAL_ERROR", "error_message": "error"});
 const CLIENT_EVENTS = new Set(['client_loaded', 'api_wrapped', 'api_missing', 'render_seen', 'widget_matched', 'sitekey_mismatch', 'page_mismatch', 'unsupported_widget', 'callback_missing', 'container_missing', 'ticket_expired', 'task_requested', 'task_processing', 'result_received', 'fields_written', 'original_callback_started', 'original_callback_done', 'original_callback_failed', 'extra_callback_started', 'extra_callback_done', 'extra_callback_failed', 'ready', 'service_failed', 'native_success', 'expired', 'reset', 'CAPTCHA_KEY_MISSING', 'CAPTCHA_HOURLY_LIMIT', 'CAPTCHA_BUSY', 'CAPTCHA_TIMEOUT', 'CAPTCHA_TICKET_INVALID', 'CAPTCHA_ADAPTER_INVALID', 'CAPTCHA_CALLBACK_FAILED', 'CAPTCHA_PROVIDER_REJECTED', 'CAPTCHA_PROVIDER_UNAVAILABLE', 'CAPTCHA_PROVIDER_BAD_RESPONSE', 'CAPTCHA_BUDGET_STORAGE_ERROR', 'CAPTCHA_DISABLED']);
 
 class CaptchaError extends Error {
@@ -25,7 +26,7 @@ function normalizeCaptcha(raw = {}) {
   const callback_path = raw.callback_path ?? '';
   const result_ttl_seconds = Number(raw.result_ttl_seconds ?? 120);
   const messages = {};
-  for (const field of ['waiting_message', 'ready_message']) {
+  for (const field of Object.keys(CAPTCHA_MESSAGE_FIELDS)) {
     const value = raw[field] ?? '';
     if (typeof value !== 'string' || value.length > 200 || /[\x00-\x1f\x7f]/.test(value)) throw new Error('captcha: invalid display message');
     messages[field] = value.trim();
@@ -88,8 +89,7 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
   function digest(text) { return crypto.createHmac('sha256', secret).update(text).digest('hex'); }
   function fingerprint(site) {
     const verification = { ...site.captcha };
-    delete verification.waiting_message;
-    delete verification.ready_message;
+    for (const field of Object.keys(CAPTCHA_MESSAGE_FIELDS)) delete verification[field];
     return digest(JSON.stringify([site.id, site.targetBase, verification]));
   }
   function cleanup() {
@@ -214,10 +214,10 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
 
 function injectCaptcha(html, site, ticket) {
   if (!ticket) return html;
-  const config = { messages: { waiting: site.captcha.waiting_message || '', ready: site.captcha.ready_message || '' }, debug: site.debugEnabled === true, site: site.id, sitekey: site.captcha.site_key, page: (site.proxyPrefix || '') + site.captcha.page_path, ticket, timeout: site.captcha.timeout_seconds, mode: site.captcha.mode, responseSelector: site.captcha.response_selector, responseFieldName: site.captcha.response_field_name, callbackPath: site.captcha.callback_path, resultTtl: site.captcha.result_ttl_seconds };
+  const config = { messages: Object.fromEntries(Object.entries(CAPTCHA_MESSAGE_FIELDS).map(([field, code]) => [code, site.captcha[field] || ''])), debug: site.debugEnabled === true, site: site.id, sitekey: site.captcha.site_key, page: (site.proxyPrefix || '') + site.captcha.page_path, ticket, timeout: site.captcha.timeout_seconds, mode: site.captcha.mode, responseSelector: site.captcha.response_selector, responseFieldName: site.captcha.response_field_name, callbackPath: site.captcha.callback_path, resultTtl: site.captcha.result_ttl_seconds };
   const encoded = Buffer.from(JSON.stringify(config)).toString('base64url');
   const tag = `<script src="/__ih/captcha/client.js" data-captcha="${encoded}"></script>`;
   return /<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, match => match + tag) : tag + html;
 }
 
-module.exports = { normalizeCaptcha, createCaptchaService, injectCaptcha, CaptchaError };
+module.exports = { CAPTCHA_MESSAGE_FIELDS, normalizeCaptcha, createCaptchaService, injectCaptcha, CaptchaError };
