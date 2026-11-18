@@ -17,6 +17,7 @@ assert.ok(html.includes('id="globalLanguage"'));
 const elements = new Map();
 let focused = '';
 let requests = 0;
+let reply = null;
 function element(id = '') {
   const attributes = new Map();
   return {
@@ -28,7 +29,7 @@ function element(id = '') {
     scrollIntoView() {},
     after: child => elements.set(child.id, child),
     remove() { elements.delete(this.id); },
-    classList: { toggle() {} },
+    classList: { toggle() {}, add() {}, remove() {} },
   };
 }
 const context = vm.createContext({
@@ -51,6 +52,7 @@ const context = vm.createContext({
   URL, URLSearchParams,
   fetch: async () => {
     requests++;
+    if (reply) return { ok: true, json: async () => reply };
     return { ok: false, json: async () => ({ message: 'site id: 1-64 chars [A-Za-z0-9_-]' }) };
   },
 });
@@ -144,6 +146,15 @@ async function main() {
   assert.throws(() => evaluate('collectCaptchaForm()'), /CSS selector/);
   evaluate("$('siteCaptchaSelector').value='';$('siteCaptchaCallback').value='constructor.constructor'");
   assert.throws(() => evaluate('collectCaptchaForm()'), /global function path/);
-  console.log('PASS: admin guide entries, bilingual errors, field validation and guide contents.');
+  evaluate("state.editingSiteId='test';$('siteCaptchaEnabled').value='true';LANG='zh'");
+  reply = { data: { enabled: false, mode: 'provider_only', key_configured: true, storage_healthy: true, tasks_this_hour: 0, hourly_limit: 1, active: false, recent_events: [{ at: '2026-11-18T00:00:00Z', source: 'browser', event: 'original_callback_done', page: 'abcdef123456' }] } };
+  await evaluate('checkCaptchaStatus()');
+  assert.ok(elements.get('captchaConfigStatus').textContent.includes('已保存服务开关：关闭'));
+  assert.ok(elements.get('captchaConfigStatus').textContent.includes('请先保存'));
+  assert.ok(elements.get('captchaDiagnosticEvents').textContent.includes('网页原回调已返回，未抛同步异常'));
+  reply.data.recent_events = [];
+  await evaluate('checkCaptchaStatus()');
+  assert.ok(elements.get('captchaDiagnosticEvents').textContent.includes('暂无诊断记录'));
+  console.log('PASS: admin guide entries, bilingual errors, field validation, saved verification state and diagnostics.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

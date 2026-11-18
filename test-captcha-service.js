@@ -55,6 +55,23 @@ async function main() {
   for (const raw of [null, [], { enabled: true }, { provider: 'other' }, { api_key_env: 'secret-value-with-hyphens' }, { timeout_seconds: 500 }, { max_tasks_per_hour: 0 }, { page_path: '//elsewhere/' }, { page_path: '/../login' }]) {
     assert.throws(() => normalizeCaptcha(raw));
   }
+  const diagnostic = fixture('diagnostic');
+  assert.equal(diagnostic.service.status(diagnostic.site).enabled, true);
+  assert.equal(diagnostic.service.status(diagnostic.site).recent_events.length, 0);
+  rejects(() => diagnostic.service.report(diagnostic.site, { headers: {} }, { ticket: diagnostic.ticket, event: 'client_loaded' }), 'CAPTCHA_TICKET_INVALID');
+  rejects(() => diagnostic.service.report(diagnostic.site, diagnostic.req, { ticket: diagnostic.ticket, event: 'secret-from-client' }), 'CAPTCHA_DIAGNOSTIC_INVALID');
+  for (let i = 0; i < 48; i++) diagnostic.service.report(diagnostic.site, diagnostic.req, { ticket: diagnostic.ticket, event: 'client_loaded', password: 'do-not-log-me' });
+  rejects(() => diagnostic.service.report(diagnostic.site, diagnostic.req, { ticket: diagnostic.ticket, event: 'ready' }), 'CAPTCHA_DIAGNOSTIC_LIMIT');
+  const events = diagnostic.service.status(diagnostic.site).recent_events;
+  assert.equal(events.length, 48);
+  assert.equal(events[0].source, 'browser');
+  assert.match(events[0].page, /^[a-f0-9]{12}$/);
+  assert.ok(!JSON.stringify(events).includes(diagnostic.ticket));
+  assert.ok(!diagnostic.logs.join('').includes('do-not-log-me'));
+  assert.equal(diagnostic.calls.length, 0);
+  assert.equal(diagnostic.service.status(diagnostic.site).tasks_this_hour, 0);
+  diagnostic.advance(300001);
+  rejects(() => diagnostic.service.report(diagnostic.site, diagnostic.req, { ticket: diagnostic.ticket, event: 'ready' }), 'CAPTCHA_TICKET_INVALID');
   const f = fixture('normal');
   const body = { ticket: f.ticket, metadata: f.metadata };
   const markup = injectCaptcha('<html><head><script src="/app.js"></script></head></html>', f.site, f.ticket);

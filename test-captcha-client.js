@@ -7,6 +7,8 @@ const source = fs.readFileSync(require.resolve('./public/captcha-client.js'), 'u
 async function scenario({ native = false, unsupported = false, disconnected = false, failed = false, wrongPage = false, nativeDuringFetch = false, config: overrides = {}, selectorInvalid = false, callbackThrows = false, resetDuringFetch = false, noCallback = false } = {}) {
   const timeouts = [];
   const requests = [];
+  const diagnostics = [];
+  const stored = new Map();
   const callbacks = [];
   const customCallbacks = [];
   const inputs = [];
@@ -21,8 +23,14 @@ async function scenario({ native = false, unsupported = false, disconnected = fa
   const node = { isConnected: !disconnected, after: notice => notices.push(notice), querySelectorAll: () => inputs, appendChild: field => inputs.push(field) };
   const config = { site: 'test', sitekey: 'public-test-key', page: '/demo/login', ticket: 'test-ticket', timeout: 30, ...overrides };
   const window = {
+    sessionStorage: { setItem: (key, value) => stored.set(key, value) },
+    console: { info() {} },
     app: { done(token) { assert.equal(this, window.app); customCallbacks.push(token); } },
     fetch: async (url, request) => {
+      if (url.endsWith('/diagnostics')) {
+        diagnostics.push(JSON.parse(request.body));
+        return { ok: true, json: async () => ({ ok: true }) };
+      }
       requests.push({ url, body: JSON.parse(request.body) });
       if (nativeDuringFetch) rendered.callback('native-result');
       if (resetDuringFetch) window.turnstile.reset('ih-provider-1');
@@ -56,7 +64,7 @@ async function scenario({ native = false, unsupported = false, disconnected = fa
     }
   }
   await advance(10000);
-  return { requests, callbacks, customCallbacks, inputs, notices, errors, expirations, selected, id, node, api: window.turnstile, rendered, advance, renderCount, nativeResets: () => nativeResets };
+  return { diagnostics, stored, requests, callbacks, customCallbacks, inputs, notices, errors, expirations, selected, id, node, api: window.turnstile, rendered, advance, renderCount, nativeResets: () => nativeResets };
 }
 
 async function main() {
@@ -65,6 +73,12 @@ async function main() {
   assert.equal(ready.requests[0].url, '/__ih/captcha/test');
   assert.equal(ready.requests[0].body.metadata.sitekey, 'public-test-key');
   assert.deepEqual(ready.callbacks, ['mock-result']);
+  const stages = ready.diagnostics.map(row => row.event);
+  for (const event of ['client_loaded', 'api_wrapped', 'render_seen', 'widget_matched', 'task_requested', 'result_received', 'fields_written', 'original_callback_started', 'original_callback_done', 'ready']) assert.ok(stages.includes(event), event);
+  assert.ok(stages.indexOf('result_received') < stages.indexOf('original_callback_done'));
+  assert.ok(!JSON.stringify(ready.diagnostics).includes('mock-result'));
+  assert.ok(!ready.stored.get('ihCaptchaDiagnostics').includes('mock-result'));
+  assert.ok(!ready.stored.get('ihCaptchaDiagnostics').includes('test-ticket'));
   assert.equal(ready.inputs[0].name, 'cf-turnstile-response');
   assert.equal(ready.inputs[0].value, 'mock-result');
   assert.equal(ready.api.getResponse(ready.id), 'mock-result');
@@ -82,6 +96,8 @@ async function main() {
   assert.equal(ready.expirations.length, 1);
   assert.match(ready.notices[0].textContent, /expired/);
   for (const options of [{ native: true }, { unsupported: true }, { disconnected: true }, { wrongPage: true }]) assert.equal((await scenario(options)).requests.length, 0);
+  assert.ok((await scenario({ wrongPage: true })).diagnostics.some(row => row.event === 'page_mismatch'));
+  assert.ok((await scenario({ unsupported: true })).diagnostics.some(row => row.event === 'unsupported_widget'));
   const raced = await scenario({ nativeDuringFetch: true });
   assert.deepEqual(raced.callbacks, ['native-result']);
   assert.equal(raced.inputs.length, 0);
@@ -112,6 +128,9 @@ async function main() {
   assert.equal((await scenario({ config: { responseSelector: '[' }, selectorInvalid: true })).requests.length, 0);
   const thrown = await scenario({ callbackThrows: true });
   assert.equal(thrown.inputs[0].value, '');
+  assert.ok(thrown.diagnostics.some(row => row.event === 'original_callback_failed'));
+  assert.ok(!thrown.diagnostics.some(row => row.event === 'ready'));
+  assert.ok(failed.diagnostics.some(row => row.event === 'CAPTCHA_HOURLY_LIMIT'));
   assert.ok(!thrown.notices[0].textContent.includes('ready'));
   const cancelled = await scenario({ config: { mode: 'provider_only' }, resetDuringFetch: true });
   assert.equal(cancelled.callbacks.length, 0);

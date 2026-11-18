@@ -1765,7 +1765,7 @@ function main() {
     res.setHeader('Cache-Control', 'no-store');
     res.sendFile(path.join(ROOT, 'public', 'captcha-client.js'));
   });
-  app.post('/__ih/captcha/:siteId', express.json({ limit: '8kb', strict: true }), (req, res) => {
+  app.post(['/__ih/captcha/:siteId', '/__ih/captcha/:siteId/diagnostics'], express.json({ limit: '8kb', strict: true }), (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     try {
@@ -1773,7 +1773,7 @@ function main() {
       try { origin = new URL(req.get('origin')); } catch { return res.status(403).json({ error: 'CAPTCHA_ORIGIN_INVALID' }); }
       if (!/^https?:$/.test(origin.protocol) || origin.host !== req.get('host') || req.get('sec-fetch-site') === 'cross-site') return res.status(403).json({ error: 'CAPTCHA_ORIGIN_INVALID' });
       const site = config.sites.find(candidate => candidate.id === req.params.siteId);
-      const result = captchaService.request(site, req, req.body);
+      const result = req.path === '/__ih/captcha/' + req.params.siteId + '/diagnostics' ? captchaService.report(site, req, req.body) : captchaService.request(site, req, req.body);
       res.status(result.status === 'processing' ? 202 : 200).json(result);
     } catch (error) {
       res.status(error instanceof CaptchaError ? error.status : 500).json({ error: error instanceof CaptchaError ? error.code : 'CAPTCHA_INTERNAL_ERROR' });

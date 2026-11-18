@@ -6,6 +6,24 @@
   try { config = JSON.parse(atob(script.dataset.captcha.replace(/-/g, '+').replace(/_/g, '/'))); } catch (_) { return; }
   window.__ihCaptchaInstalled = true;
   var fetchRequest = window.fetch.bind(window);
+  var diagnosticEvents = [];
+  var diagnosticSeen = new Set();
+  function trace(event) {
+    if (diagnosticSeen.has(event) || diagnosticEvents.length >= 40) return;
+    diagnosticSeen.add(event);
+    var row = { at: new Date().toISOString(), event: event };
+    diagnosticEvents.push(row);
+    window.__ihCaptchaDiagnostics = diagnosticEvents.map(function (item) { return { at: item.at, event: item.event }; });
+    try { window.sessionStorage.setItem('ihCaptchaDiagnostics', JSON.stringify(diagnosticEvents)); } catch (_) {}
+    try { window.console.info('[captcha]', event); } catch (_) {}
+    try {
+      void fetchRequest('/__ih/captcha/' + encodeURIComponent(config.site) + '/diagnostics', {
+        method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ticket: config.ticket, event: event }), signal: AbortSignal.timeout(5000),
+      }).catch(function () {});
+    } catch (_) {}
+  }
+  trace('client_loaded');
   var used = false;
   var expires = Date.now() + 290000;
   var widgets = new Map();
@@ -52,6 +70,7 @@
   function invalidate(state, reason, notify) {
     if (state.stopped) return;
     state.stopped = true;
+    trace(reason === 'expired' ? 'expired' : reason === 'reset' ? 'reset' : 'service_failed');
     var token = state.token;
     state.token = '';
     (state.fields || []).forEach(function (field) { if (field.value === token) write(field, ''); });
@@ -71,6 +90,7 @@
     try {
       if (config.callbackPath && !callback(config.callbackPath)) throw new Error('CAPTCHA_ADAPTER_INVALID');
       if (config.responseSelector) fields(state);
+      trace('task_requested');
       while (Date.now() < deadline && alive(state) && !state.nativeReady) {
         var response = await fetchRequest('/__ih/captcha/' + encodeURIComponent(config.site), {
           method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
@@ -80,17 +100,29 @@
         var result = await response.json();
         if (!response.ok || result.status === 'failed') throw new Error(result.error || 'CAPTCHA_PROVIDER_UNAVAILABLE');
         if (!alive(state) || state.nativeReady) return;
+        if (result.status === 'processing') trace('task_processing');
         if (result.status === 'ready') {
+          trace('result_received');
           if (typeof result.token !== 'string' || !result.token) throw new Error('CAPTCHA_PROVIDER_BAD_RESPONSE');
           state.fields = fields(state);
           state.token = result.token;
           state.providerIssued = true;
           state.until = Date.now() + Math.max(30, Math.min(240, Number(config.resultTtl) || 120)) * 1000;
           state.fields.forEach(function (field) { write(field, result.token); });
-          invoke(options.callback, result.token);
-          if (config.callbackPath && config.callbackPath !== options.callback) invoke(config.callbackPath, result.token);
+          if (state.fields.length) trace('fields_written');
+          if (callback(options.callback)) {
+            trace('original_callback_started');
+            try { invoke(options.callback, result.token); trace('original_callback_done'); }
+            catch (_) { trace('original_callback_failed'); throw new Error('CAPTCHA_CALLBACK_FAILED'); }
+          }
+          if (config.callbackPath && config.callbackPath !== options.callback) {
+            trace('extra_callback_started');
+            try { if (!callback(config.callbackPath)) throw new Error('callback unavailable'); invoke(config.callbackPath, result.token); trace('extra_callback_done'); }
+            catch (_) { trace('extra_callback_failed'); throw new Error('CAPTCHA_CALLBACK_FAILED'); }
+          }
           if (!valid(state)) return;
           message(notice, 'ready');
+          trace('ready');
           setTimeout(function () { invalidate(state, 'expired', true); }, Math.max(0, state.until - Date.now()));
           return;
         }
@@ -98,6 +130,7 @@
       }
       if (!state.nativeReady && alive(state)) throw new Error('CAPTCHA_TIMEOUT');
     } catch (error) {
+      if (["CAPTCHA_KEY_MISSING", "CAPTCHA_HOURLY_LIMIT", "CAPTCHA_BUSY", "CAPTCHA_TIMEOUT", "CAPTCHA_TICKET_INVALID", "CAPTCHA_ADAPTER_INVALID", "CAPTCHA_CALLBACK_FAILED", "CAPTCHA_PROVIDER_REJECTED", "CAPTCHA_PROVIDER_UNAVAILABLE", "CAPTCHA_PROVIDER_BAD_RESPONSE", "CAPTCHA_BUDGET_STORAGE_ERROR", "CAPTCHA_DISABLED"].includes(error.message)) trace(error.message);
       invalidate(state, error.message, !!state.token);
       try { invoke(options['error-callback'], 'IH_SERVICE_FAILED'); } catch (_) {}
     } finally { if (state.nativeReady || !state.node.isConnected) notice.remove(); }
@@ -106,6 +139,7 @@
     var api = window.turnstile;
     if (!api || typeof api.render !== 'function' || api.render.__ihWrapped) return;
     var render = api.render;
+    trace('api_wrapped');
     function find(value) {
       if (widgets.has(value)) return widgets.get(value);
       var node;
@@ -130,12 +164,17 @@
       };
     });
     function wrapped(container, options) {
+      trace('render_seen');
       var node;
       try { node = typeof container === 'string' ? document.querySelector(container) : container; } catch (_) { return render.apply(this, arguments); }
       var eligible = options && options.sitekey === config.sitekey && (callback(options.callback) || callback(config.callbackPath) || config.responseSelector || config.responseFieldName) && !options.cData && !options.chlPageData && location.pathname.replace(/\/+$/, '') === config.page.replace(/\/+$/, '') && Date.now() < expires;
-      if (!eligible || !node) return render.apply(this, arguments);
+      if (!eligible || !node) {
+        trace(!node ? 'container_missing' : !options || options.sitekey !== config.sitekey ? 'sitekey_mismatch' : location.pathname.replace(/\/+$/, '') !== config.page.replace(/\/+$/, '') ? 'page_mismatch' : options.cData || options.chlPageData ? 'unsupported_widget' : Date.now() >= expires ? 'ticket_expired' : 'callback_missing');
+        return render.apply(this, arguments);
+      }
+      trace('widget_matched');
       var state = { node: node, options: options, nativeReady: false, token: '', until: 0, stopped: false, virtual: config.mode === 'provider_only' };
-      var next = Object.assign({}, options, { callback: function (token) { if (valid(state) || state.stopped) return; state.nativeReady = true; return invoke(options.callback, token); } });
+      var next = Object.assign({}, options, { callback: function (token) { if (valid(state) || state.stopped) return; state.nativeReady = true; trace('native_success'); return invoke(options.callback, token); } });
       ['error-callback', 'expired-callback', 'timeout-callback', 'unsupported-callback'].forEach(function (name) {
         next[name] = function (value) { if (!valid(state) && !state.stopped) return invoke(options[name], value); };
       });
@@ -159,4 +198,5 @@
     if (Date.now() > expires && !Array.from(widgets.values()).some(function (state) { return !state.stopped && state.token; })) clearInterval(timer);
   }, 100);
   wrap();
+  setTimeout(function () { if (!window.turnstile || typeof window.turnstile.render !== 'function') trace('api_missing'); }, 10000);
 })();

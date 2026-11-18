@@ -4,6 +4,7 @@ const path = require('node:path');
 
 const COOKIE = 'ih_captcha_browser';
 const TTL = 5 * 60 * 1000;
+const CLIENT_EVENTS = new Set(['client_loaded', 'api_wrapped', 'api_missing', 'render_seen', 'widget_matched', 'sitekey_mismatch', 'page_mismatch', 'unsupported_widget', 'callback_missing', 'container_missing', 'ticket_expired', 'task_requested', 'task_processing', 'result_received', 'fields_written', 'original_callback_started', 'original_callback_done', 'original_callback_failed', 'extra_callback_started', 'extra_callback_done', 'extra_callback_failed', 'ready', 'service_failed', 'native_success', 'expired', 'reset', 'CAPTCHA_KEY_MISSING', 'CAPTCHA_HOURLY_LIMIT', 'CAPTCHA_BUSY', 'CAPTCHA_TIMEOUT', 'CAPTCHA_TICKET_INVALID', 'CAPTCHA_ADAPTER_INVALID', 'CAPTCHA_CALLBACK_FAILED', 'CAPTCHA_PROVIDER_REJECTED', 'CAPTCHA_PROVIDER_UNAVAILABLE', 'CAPTCHA_PROVIDER_BAD_RESPONSE', 'CAPTCHA_BUDGET_STORAGE_ERROR', 'CAPTCHA_DISABLED']);
 
 class CaptchaError extends Error {
   constructor(code, status = 400) { super(code); this.code = code; this.status = status; }
@@ -47,6 +48,14 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
   const secret = crypto.randomBytes(32);
   const jobs = new Map();
   const active = new Set();
+  const diagnosticEvents = [];
+  const reports = new Map();
+  function record(site, event, source = 'server', page = '') {
+    const row = { at: new Date(now()).toISOString(), site: site.id, event, source, page };
+    diagnosticEvents.push(row);
+    if (diagnosticEvents.length > 1000) diagnosticEvents.shift();
+    log(`site=${site.id} source=${source}${page ? ' page=' + page : ''} ${event}`);
+  }
   let ledger = {};
   let storageHealthy = true;
   try {
@@ -63,6 +72,7 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
   function fingerprint(site) { return digest(JSON.stringify([site.id, site.targetBase, site.captcha])); }
   function cleanup() {
     for (const [ticket, job] of jobs) if (job.expires < now()) jobs.delete(ticket);
+    for (const [key, value] of reports) if (value.expires < now()) reports.delete(key);
   }
   function issue(site, req, headers) {
     if (!site.captcha?.enabled) return null;
@@ -84,6 +94,19 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
     try { data = JSON.parse(Buffer.from(encoded, 'base64url').toString()); } catch { throw new CaptchaError('CAPTCHA_TICKET_INVALID', 403); }
     if (data.site !== site.id || data.config !== fingerprint(site) || data.expires <= now() || !cookieValue(req) || data.browser !== digest(cookieValue(req))) throw new CaptchaError('CAPTCHA_TICKET_INVALID', 403);
     return data;
+  }
+  function report(site, req, body) {
+    cleanup();
+    if (!site?.enabled || !site.captcha?.enabled) throw new CaptchaError('CAPTCHA_DISABLED', 404);
+    const ticket = verify(body?.ticket, site, req);
+    if (!CLIENT_EVENTS.has(body?.event)) throw new CaptchaError('CAPTCHA_DIAGNOSTIC_INVALID');
+    const key = digest(body.ticket);
+    const entry = reports.get(key) || { count: 0, expires: ticket.expires };
+    if (entry.count >= 48 || (!reports.has(key) && reports.size >= 200)) throw new CaptchaError('CAPTCHA_DIAGNOSTIC_LIMIT', 429);
+    entry.count++;
+    reports.set(key, entry);
+    record(site, body.event, 'browser', key.slice(0, 12));
+    return { ok: true };
   }
   function reserve(site) {
     if (!storageHealthy) throw new CaptchaError('CAPTCHA_BUDGET_STORAGE_ERROR', 503);
@@ -122,7 +145,7 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
       if (metadata.action) task.action = metadata.action;
       const created = await providerCall('createTask', { clientKey: key, task }, deadline);
       if (!Number.isSafeInteger(created.taskId) || created.taskId <= 0) throw new CaptchaError('CAPTCHA_PROVIDER_BAD_RESPONSE', 502);
-      log(`site=${site.id} task_started`);
+      record(site, 'task_started');
       while (now() < deadline) {
         await sleep(Math.min(5000, Math.max(0, deadline - now())));
         if (now() >= deadline) break;
@@ -131,13 +154,13 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
         if (result.status === 'processing') continue;
         if (result.status !== 'ready' || typeof result.solution?.token !== 'string' || !result.solution.token || result.solution.token.length > 16384) throw new CaptchaError('CAPTCHA_PROVIDER_BAD_RESPONSE', 502);
         job.status = 'ready'; job.token = result.solution.token;
-        log(`site=${site.id} task_ready`);
+        record(site, 'task_ready');
         return;
       }
       throw new CaptchaError('CAPTCHA_TIMEOUT', 504);
     } catch (error) {
       job.status = 'failed'; job.error = error instanceof CaptchaError ? error.code : 'CAPTCHA_INTERNAL_ERROR';
-      log(`site=${site.id} ${job.error}`);
+      record(site, job.error);
     } finally { active.delete(site.id); }
   }
   function request(site, req, body) {
@@ -161,9 +184,9 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
   }
   function status(site) {
     const hour = Math.floor(now() / 3600000);
-    return { key_configured: Boolean(env[site.captcha.api_key_env]?.trim()), storage_healthy: storageHealthy, active: active.has(site.id), tasks_this_hour: Object.hasOwn(ledger, site.id) && ledger[site.id].hour === hour ? ledger[site.id].count : 0, hourly_limit: site.captcha.max_tasks_per_hour };
+    return { enabled: site.captcha.enabled, mode: site.captcha.mode, recent_events: diagnosticEvents.filter(row => row.site === site.id).slice(-50).map(row => ({ ...row })), key_configured: Boolean(env[site.captcha.api_key_env]?.trim()), storage_healthy: storageHealthy, active: active.has(site.id), tasks_this_hour: Object.hasOwn(ledger, site.id) && ledger[site.id].hour === hour ? ledger[site.id].count : 0, hourly_limit: site.captcha.max_tasks_per_hour };
   }
-  return { issue, request, status };
+  return { issue, request, status, report };
 }
 
 function injectCaptcha(html, site, ticket) {

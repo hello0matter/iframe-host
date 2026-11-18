@@ -240,6 +240,18 @@ async function main() {
   assert.strictEqual(captchaConfig.resultTtl, 60);
   const captchaBody = JSON.stringify({ ticket: captchaConfig.ticket, metadata: { sitekey: 'public-integration-key' } });
   const postCaptcha = headers => request(publicBase + '/__ih/captcha/default', { method: 'POST', headers: { 'content-type': 'application/json', cookie: captchaCookie, ...headers }, body: captchaBody });
+  const postDiagnostic = (headers = {}, event = 'client_loaded') => request(publicBase + '/__ih/captcha/default/diagnostics', { method: 'POST', headers: { 'content-type': 'application/json', cookie: captchaCookie, ...headers }, body: JSON.stringify({ ticket: captchaConfig.ticket, event, token: 'must-not-appear-in-logs' }) });
+  assert.strictEqual((await postDiagnostic()).response.status, 403);
+  assert.strictEqual((await postDiagnostic({ origin: 'https://foreign.example' })).response.status, 403);
+  assert.strictEqual((await postDiagnostic({ origin: publicBase, cookie: '' })).response.status, 403);
+  assert.strictEqual((await postDiagnostic({ origin: publicBase })).response.status, 200);
+  assert.strictEqual((await postDiagnostic({ origin: publicBase }, 'arbitrary-client-text')).response.status, 400);
+  const diagnosticStatus = (await api('/api/sites/default/captcha-status', token)).data;
+  assert.strictEqual(diagnosticStatus.enabled, true);
+  assert.strictEqual(diagnosticStatus.tasks_this_hour, 0);
+  assert.strictEqual(diagnosticStatus.recent_events[0].event, 'client_loaded');
+  assert.ok(!JSON.stringify(diagnosticStatus).includes('must-not-appear-in-logs'));
+
   assert.strictEqual((await postCaptcha({})).response.status, 403);
   assert.strictEqual((await postCaptcha({ origin: 'https://foreign.example' })).response.status, 403);
   assert.strictEqual((await postCaptcha({ origin: publicBase, 'sec-fetch-site': 'cross-site' })).response.status, 403);
