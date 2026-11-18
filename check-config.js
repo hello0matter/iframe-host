@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { normalizeApiProxy } = require('./api-proxy');
+const { normalizeCallback } = require('./callback-service');
 const { normalizeCaptcha } = require('./captcha-service');
 
 function parseAdminPath(v) {
@@ -53,6 +54,7 @@ function parseSite(site, index) {
     enabled: site.enabled !== false,
     captcha: normalizeCaptcha(site.captcha),
     apiProxy: normalizeApiProxy(site.api_proxy),
+    externalCallback: normalizeCallback(site.external_callback),
   };
 }
 
@@ -69,6 +71,7 @@ function loadConfig(filePath) {
         targetUrl: parseTargetUrl(raw.target_url, "target_url"),
         enabled: true,
         apiProxy: normalizeApiProxy(raw.api_proxy),
+        externalCallback: normalizeCallback(raw.external_callback),
       }];
   const ids = new Set();
   const prefixes = new Set();

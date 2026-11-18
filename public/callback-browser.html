@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Isolated callback step</title></head><body><script>
+'use strict';
+let used = false;
+window.addEventListener('message', event => {
+  if (used || event.source !== parent || event.data?.type !== 'callback-run') return;
+  used = true;
+  const { nonce, context, code, timeout_ms } = event.data;
+  const source = `self.Worker = undefined; self.fetch = undefined; self.WebSocket = undefined; self.importScripts = undefined; onmessage = async e => { try { const {input,event,previous} = e.data; const result = await (async function(input,event,previous){"use strict";\n${code}\n})(input,event,previous); const text = JSON.stringify(result === undefined ? null : result); if (!text || new TextEncoder().encode(text).length > 16384) throw new Error(); postMessage({ok:true,output:JSON.parse(text)}); } catch { postMessage({ok:false}); } };`;
+  const url = URL.createObjectURL(new Blob([source], {type:'text/javascript'}));
+  const worker = new Worker(url);
+  let done = false;
+  const finish = result => {
+    if (done) return; done = true; clearTimeout(timer); worker.terminate(); URL.revokeObjectURL(url);
+    parent.postMessage({type:'callback-result',nonce,...result},'*');
+  };
+  const timer = setTimeout(() => finish({ok:false}),Math.min(3000,Math.max(100,Number(timeout_ms)||1000)));
+  worker.onmessage = e => finish(e.data?.ok === true ? {ok:true,output:e.data.output} : {ok:false});
+  worker.onerror = () => finish({ok:false});
+  worker.postMessage(context);
+});
+</script></body></html>

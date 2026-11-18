@@ -129,6 +129,20 @@ async function main() {
     }
     assert.ok(!text.includes('console.log'), 'examples must not encourage logging verification tokens');
   }
+  evaluate('loadCallbackForm({})');
+  assert.deepEqual(JSON.parse(evaluate('JSON.stringify(collectCallbackForm())')), { enabled:false, template_id:'', signing_key_env:'IH_CALLBACK_SIGNING_KEY', auto_run:false });
+  evaluate("$('siteCallbackEnabled').value='true'");
+  assert.throws(()=>evaluate('collectCallbackForm()'), /template|模板/);
+  evaluate("$('siteCallbackTemplate').value='cb-0123456789abcdef01234567';$('siteCallbackAuto').value='true'");
+  assert.equal(evaluate('collectCallbackForm().auto_run'),true);
+  evaluate("$('siteCallbackKeyEnv').value='PATH'");
+  assert.throws(()=>evaluate('collectCallbackForm()'), /callback|回调/);
+  evaluate('loadCallbackForm({})');
+  assert.ok(html.includes('data-tab="callbacks"'));
+  new vm.Script(fs.readFileSync(path.join(__dirname,'public/callback-admin.js'),'utf8'));
+  const browserFrame = fs.readFileSync(path.join(__dirname,'public/callback-browser.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+  new vm.Script(browserFrame);
+  assert.ok(html.includes('src="/__ih/callback/admin.js"'));
   evaluate('loadApiProxyForm({})');
   assert.deepEqual(JSON.parse(evaluate('JSON.stringify(collectApiProxyForm())')), { enabled: false, path_prefixes: ['/v1'], first_byte_timeout_seconds: 120, idle_timeout_seconds: 120, apply_request_rules: false, rewrite_request_headers: false });
   for (const bad of ['', 'v1', '//v1', '/v1//x', '/v1/../x', '/v1?key=1', '/v1/*']) {

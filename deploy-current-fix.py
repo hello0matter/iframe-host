@@ -11,6 +11,11 @@ sys.path.insert(0, str(ROOT / "ops" / "lib"))
 from remote import connect, print_result, run  # type: ignore
 
 FILES = [
+    (ROOT / "callback-service.js", "/opt/iframe-host/callback-service.js"),
+    (ROOT / "callback-routes.js", "/opt/iframe-host/callback-routes.js"),
+    (ROOT / "callback-script-worker.js", "/opt/iframe-host/callback-script-worker.js"),
+    (ROOT / "public" / "callback-admin.js", "/opt/iframe-host/public/callback-admin.js"),
+    (ROOT / "public" / "callback-browser.html", "/opt/iframe-host/public/callback-browser.html"),
     (ROOT / "api-proxy.js", "/opt/iframe-host/api-proxy.js"),
     (ROOT / "captcha-service.js", "/opt/iframe-host/captcha-service.js"),
     (ROOT / "public" / "captcha-client.js", "/opt/iframe-host/public/captcha-client.js"),
@@ -32,6 +37,7 @@ def must_run(client, command: str, timeout: int = 120) -> str:
 
 
 def main() -> int:
+    raise RuntimeError("Run python ops/deploy/deploy-callbacks.py instead; this legacy uploader does not update dependencies or callback state safely.")
     client = connect()
     try:
         files = [*FILES]

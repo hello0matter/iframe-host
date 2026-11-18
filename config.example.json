@@ -12,6 +12,12 @@
       "name": "Documentation",
       "enabled": true,
       "debug_enabled": false,
+      "external_callback": {
+        "enabled": false,
+        "template_id": "",
+        "signing_key_env": "IH_CALLBACK_SIGNING_KEY",
+        "auto_run": false
+      },
       "api_proxy": {
         "enabled": false,
         "path_prefixes": ["/v1"],

@@ -11,6 +11,8 @@ const net = require("net");
 const vm = require("vm");
 const { normalizeCaptcha, createCaptchaService, injectCaptcha, CaptchaError } = require('./captcha-service');
 const { normalizeApiProxy, matchesApiProxy } = require('./api-proxy');
+const { normalizeCallback, createCallbackService } = require('./callback-service');
+const { mountCallbackRoutes } = require('./callback-routes');
 const { spawnSync } = require("child_process");
 
 const ROOT = __dirname;
@@ -876,6 +878,7 @@ function normalizeSite(raw, index = 0) {
     responseRules: parseResponseRules(source.response_rules),
     captcha: normalizeCaptcha(source.captcha),
     apiProxy: normalizeApiProxy(source.api_proxy),
+    externalCallback: normalizeCallback(source.external_callback),
   };
 }
 
@@ -896,6 +899,7 @@ function normalizeConfig(raw) {
     debug_enabled: source.debug_enabled,
     value_rules_enabled: source.value_rules_enabled,
     api_proxy: source.api_proxy,
+    external_callback: source.external_callback,
     audit_probe: source.audit_probe,
   }];
   const sites = rawSites.map(normalizeSite);
@@ -937,6 +941,7 @@ function serializeSite(site) {
     response_rules: serializeResponseRules(site.responseRules),
     captcha: site.captcha,
     api_proxy: site.apiProxy,
+    external_callback: site.externalCallback,
   };
 }
 
@@ -1911,6 +1916,9 @@ function main() {
   app.disable("x-powered-by");
   const captchaService = createCaptchaService({ stateFile: process.env.CAPTCHA_STATE_FILE || path.join(path.dirname(CONFIG_FILE), 'captcha-budget.json') });
 
+  const callbackService = createCallbackService({ stateFile: process.env.CALLBACK_STATE_FILE || path.join(path.dirname(CONFIG_FILE), 'callback-state.json'), getSite: id => config.sites.find(s => s.id === id) });
+  mountCallbackRoutes(app, { service: callbackService, adminBase, ensureAuth, getSites: () => config.sites });
+
   app.get('/__ih/captcha/client.js', (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.sendFile(path.join(ROOT, 'public', 'captcha-client.js'));
@@ -2078,6 +2086,7 @@ function main() {
       const next = buildConfigWithSite(config, id, req.body || {});
       writeConfig(next);
       config = next;
+      callbackService.wake();
       res.json({ ok: true, site: toPublicSite(getSite(config, id)) });
     } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
   });
