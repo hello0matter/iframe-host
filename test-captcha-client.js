@@ -21,7 +21,7 @@ async function scenario({ native = false, unsupported = false, disconnected = fa
   let nativeResets = 0;
   const selected = { tagName: 'INPUT', type: 'hidden', name: 'custom', value: '', dispatchEvent() {} };
   const node = { isConnected: !disconnected, after: notice => notices.push(notice), querySelectorAll: () => inputs, appendChild: field => inputs.push(field) };
-  const config = { site: 'test', sitekey: 'public-test-key', page: '/demo/login', ticket: 'test-ticket', timeout: 30, ...overrides };
+  const config = { debug: true, site: 'test', sitekey: 'public-test-key', page: '/demo/login', ticket: 'test-ticket', timeout: 30, ...overrides };
   const window = {
     sessionStorage: { setItem: (key, value) => stored.set(key, value) },
     console: { info() {} },
@@ -68,6 +68,11 @@ async function scenario({ native = false, unsupported = false, disconnected = fa
 }
 
 async function main() {
+  const quiet = await scenario({ config: { debug: false } });
+  assert.deepEqual(quiet.diagnostics, []);
+  assert.equal(quiet.stored.size, 0);
+  assert.deepEqual(quiet.callbacks, ['mock-result']);
+  assert.equal(quiet.requests.length, 1);
   const ready = await scenario();
   assert.equal(ready.requests.length, 1);
   assert.equal(ready.requests[0].url, '/__ih/captcha/test');

@@ -9,6 +9,7 @@
   var diagnosticEvents = [];
   var diagnosticSeen = new Set();
   function trace(event) {
+    if (config.debug !== true) return;
     if (diagnosticSeen.has(event) || diagnosticEvents.length >= 40) return;
     diagnosticSeen.add(event);
     var row = { at: new Date().toISOString(), event: event };
@@ -198,5 +199,5 @@
     if (Date.now() > expires && !Array.from(widgets.values()).some(function (state) { return !state.stopped && state.token; })) clearInterval(timer);
   }, 100);
   wrap();
-  setTimeout(function () { if (!window.turnstile || typeof window.turnstile.render !== 'function') trace('api_missing'); }, 10000);
+  if (config.debug === true) setTimeout(function () { if (!window.turnstile || typeof window.turnstile.render !== 'function') trace('api_missing'); }, 10000);
 })();

@@ -14,7 +14,7 @@ function fixture(name, options = {}) {
   const calls = [];
   const logs = [];
   const stateFile = path.join(tmp, name + '.json');
-  const site = { id: name, enabled: true, targetBase: 'https://upstream.example', proxyPrefix: '/demo', captcha: normalizeCaptcha({ enabled: true, site_key: 'public-test-sitekey', max_tasks_per_hour: 2 }) };
+  const site = { id: name, enabled: true, debugEnabled: true, targetBase: 'https://upstream.example', proxyPrefix: '/demo', captcha: normalizeCaptcha({ enabled: true, site_key: 'public-test-sitekey', max_tasks_per_hour: 2 }) };
   const service = createCaptchaService({
     stateFile, env: { CAPTCHA_2CAPTCHA_API_KEY: key }, now: () => time,
     sleep: async ms => { time += ms; await tick(); }, log: value => logs.push(value),
@@ -55,6 +55,14 @@ async function main() {
   for (const raw of [null, [], { enabled: true }, { provider: 'other' }, { api_key_env: 'secret-value-with-hyphens' }, { timeout_seconds: 500 }, { max_tasks_per_hour: 0 }, { page_path: '//elsewhere/' }, { page_path: '/../login' }]) {
     assert.throws(() => normalizeCaptcha(raw));
   }
+  const quiet = fixture('quiet');
+  quiet.site.debugEnabled = false;
+  rejects(() => quiet.service.report(quiet.site, quiet.req, { ticket: quiet.ticket, event: 'ready' }), 'CAPTCHA_DIAGNOSTIC_DISABLED');
+  quiet.service.request(quiet.site, quiet.req, { ticket: quiet.ticket, metadata: quiet.metadata });
+  await tick(); await tick();
+  assert.equal(quiet.service.status(quiet.site).debug_enabled, false);
+  assert.deepEqual(quiet.service.status(quiet.site).recent_events, []);
+  assert.deepEqual(quiet.logs, []);
   const diagnostic = fixture('diagnostic');
   assert.equal(diagnostic.service.status(diagnostic.site).enabled, true);
   assert.equal(diagnostic.service.status(diagnostic.site).recent_events.length, 0);

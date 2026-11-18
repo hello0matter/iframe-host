@@ -172,6 +172,11 @@ async function main() {
   reply.data.recent_events = [];
   await evaluate('checkCaptchaStatus()');
   assert.ok(elements.get('captchaDiagnosticEvents').textContent.includes('暂无诊断记录'));
+  reply.data.debug_enabled = false;
+  await evaluate('checkCaptchaStatus()');
+  assert.ok(elements.get('captchaDiagnosticEvents').textContent.includes('调试日志已关闭'));
+  assert.ok(html.includes('id="siteDebugEnabled"'));
+  assert.ok(html.includes('id="siteValueRulesEnabled"'));
   console.log('PASS: admin guide entries, bilingual errors, field validation, saved verification state and diagnostics.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -220,7 +220,7 @@ async function main() {
   assert.ok(captchaClient.text.includes('__ihCaptchaInstalled'));
   const privateCaptchaStatus = await request(apiUrl('/api/sites/default/captcha-status'));
   assert.strictEqual(privateCaptchaStatus.response.status, 401);
-  const adapterSaved = await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV', max_tasks_per_hour: 100, mode: 'provider_only', response_field_name: 'verification-token', callback_path: 'app.onVerified', result_ttl_seconds: 60 } }) });
+  const adapterSaved = await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ debug_enabled: true, captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV', max_tasks_per_hour: 100, mode: 'provider_only', response_field_name: 'verification-token', callback_path: 'app.onVerified', result_ttl_seconds: 60 } }) });
   assert.strictEqual(adapterSaved.site.captcha.mode, 'provider_only');
   assert.strictEqual(adapterSaved.site.captcha.max_tasks_per_hour, 100);
   const savedWithLimit = await api('/api/sites/default', token);
@@ -251,6 +251,7 @@ async function main() {
   assert.strictEqual((await postDiagnostic({ origin: publicBase }, 'arbitrary-client-text')).response.status, 400);
   const diagnosticStatus = (await api('/api/sites/default/captcha-status', token)).data;
   assert.strictEqual(diagnosticStatus.enabled, true);
+  assert.strictEqual(diagnosticStatus.debug_enabled, true);
   assert.strictEqual(diagnosticStatus.tasks_this_hour, 0);
   assert.strictEqual(diagnosticStatus.recent_events[0].event, 'client_loaded');
   assert.ok(!JSON.stringify(diagnosticStatus).includes('must-not-appear-in-logs'));
@@ -263,7 +264,12 @@ async function main() {
   assert.strictEqual(missingCaptchaKey.response.status, 503);
   assert.strictEqual(missingCaptchaKey.json.error, 'CAPTCHA_KEY_MISSING');
   assert.strictEqual((await api('/api/sites/default/captcha-status', token)).data.tasks_this_hour, 0);
-  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ captcha: { enabled: false } }) });
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ debug_enabled: false }) });
+  assert.strictEqual((await postDiagnostic({ origin: publicBase })).response.status, 404);
+  const quietStatus = (await api('/api/sites/default/captcha-status', token)).data;
+  assert.strictEqual(quietStatus.debug_enabled, false);
+  assert.deepStrictEqual(quietStatus.recent_events, []);
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ debug_enabled: false, captcha: { enabled: false } }) });
   assert.strictEqual((await postCaptcha({ origin: publicBase })).response.status, 404);
 
   const added = await api("/api/sites", token, { method: "POST", body: JSON.stringify({
@@ -364,7 +370,7 @@ async function main() {
   const requestRules = [
     rule("query", "lang", 'return "zh-CN";'),
     rule("query", "remove", "return null;"),
-    rule("header", "x-custom", 'return value + "-sent";'),
+    rule("header", "x-custom", 'console.log("do-not-record-log-args"); return value + "-sent";'),
     rule("header", "x-stage", 'return response === null ? request.query : "wrong";'),
     rule("header", "x-drop", "return null;"),
     rule("header", "host", 'return "invalid.example";'),
@@ -405,6 +411,24 @@ async function main() {
   assert.strictEqual(changedRequest.json.headers["x-other"], undefined);
   assert.strictEqual(changedRequest.json.headers.host, `127.0.0.1:${upstreamOnePort}`);
   assert.strictEqual(Number(changedRequest.json.headers["content-length"]), Buffer.byteLength(changedRequest.json.body));
+  assert.ok(!serverOutput.includes('[value-rule]'), 'debug off must suppress script logs');
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ value_rules_enabled: false }) });
+  const disabledRules = await sendRequestRule("multipart-original", "multipart/form-data; boundary=x");
+  assert.strictEqual(disabledRules.response.status, 200);
+  assert.strictEqual(disabledRules.json.body, "multipart-original");
+  assert.strictEqual(disabledRules.json.headers["x-custom"], "original");
+  assert.strictEqual(lastUpstreamOneUrl, "/request-mutate?remove=1&keep=2");
+  assert.strictEqual((await api("/api/sites/default", token)).site.value_rules_enabled, false);
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ value_rules_enabled: true, debug_enabled: true }) });
+  for (let i = 0; i < 4; i++) await sendRequestRule('{"data":{"n":1}}', "application/json");
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const debugLines = serverOutput.split('\n').filter(line => line.includes('[value-rule]'));
+  assert.ok(debugLines.length > 0 && debugLines.length <= 60, 'debug logs must be bounded per site');
+  assert.ok(!debugLines.join('').includes('do-not-record-log-args'));
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ debug_enabled: false }) });
+  await sendRequestRule('{"data":{"n":1}}', "application/json");
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.strictEqual(serverOutput.split('\n').filter(line => line.includes('[value-rule]')).length, debugLines.length);
   const formRequest = await sendRequestRule("token=abc&keep=1", "application/x-www-form-urlencoded");
   assert.strictEqual(formRequest.json.body, "token=abc-sent&keep=1");
   const textRequest = await sendRequestRule("marker=abc", "text/plain");

@@ -50,7 +50,18 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
   const active = new Set();
   const diagnosticEvents = [];
   const reports = new Map();
+  const debugRates = new Map();
   function record(site, event, source = 'server', page = '') {
+    if (!site.debugEnabled) return;
+    const minute = Math.floor(now() / 60000);
+    let rate = debugRates.get(site.id);
+    if (!rate || rate.minute !== minute) {
+      if (!debugRates.has(site.id) && debugRates.size >= 200) debugRates.delete(debugRates.keys().next().value);
+      rate = { minute, count: 0 };
+      debugRates.set(site.id, rate);
+    }
+    if (rate.count >= 120) return;
+    rate.count++;
     const row = { at: new Date(now()).toISOString(), site: site.id, event, source, page };
     diagnosticEvents.push(row);
     if (diagnosticEvents.length > 1000) diagnosticEvents.shift();
@@ -96,6 +107,7 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
     return data;
   }
   function report(site, req, body) {
+    if (!site?.debugEnabled) throw new CaptchaError('CAPTCHA_DIAGNOSTIC_DISABLED', 404);
     cleanup();
     if (!site?.enabled || !site.captcha?.enabled) throw new CaptchaError('CAPTCHA_DISABLED', 404);
     const ticket = verify(body?.ticket, site, req);
@@ -184,14 +196,14 @@ function createCaptchaService({ stateFile, fetchImpl = global.fetch, now = Date.
   }
   function status(site) {
     const hour = Math.floor(now() / 3600000);
-    return { enabled: site.captcha.enabled, mode: site.captcha.mode, recent_events: diagnosticEvents.filter(row => row.site === site.id).slice(-50).map(row => ({ ...row })), key_configured: Boolean(env[site.captcha.api_key_env]?.trim()), storage_healthy: storageHealthy, active: active.has(site.id), tasks_this_hour: Object.hasOwn(ledger, site.id) && ledger[site.id].hour === hour ? ledger[site.id].count : 0, hourly_limit: site.captcha.max_tasks_per_hour };
+    return { enabled: site.captcha.enabled, mode: site.captcha.mode, debug_enabled: site.debugEnabled === true, recent_events: site.debugEnabled ? diagnosticEvents.filter(row => row.site === site.id).slice(-50).map(row => ({ ...row })) : [], key_configured: Boolean(env[site.captcha.api_key_env]?.trim()), storage_healthy: storageHealthy, active: active.has(site.id), tasks_this_hour: Object.hasOwn(ledger, site.id) && ledger[site.id].hour === hour ? ledger[site.id].count : 0, hourly_limit: site.captcha.max_tasks_per_hour };
   }
   return { issue, request, status, report };
 }
 
 function injectCaptcha(html, site, ticket) {
   if (!ticket) return html;
-  const config = { site: site.id, sitekey: site.captcha.site_key, page: (site.proxyPrefix || '') + site.captcha.page_path, ticket, timeout: site.captcha.timeout_seconds, mode: site.captcha.mode, responseSelector: site.captcha.response_selector, responseFieldName: site.captcha.response_field_name, callbackPath: site.captcha.callback_path, resultTtl: site.captcha.result_ttl_seconds };
+  const config = { debug: site.debugEnabled === true, site: site.id, sitekey: site.captcha.site_key, page: (site.proxyPrefix || '') + site.captcha.page_path, ticket, timeout: site.captcha.timeout_seconds, mode: site.captcha.mode, responseSelector: site.captcha.response_selector, responseFieldName: site.captcha.response_field_name, callbackPath: site.captcha.callback_path, resultTtl: site.captcha.result_ttl_seconds };
   const encoded = Buffer.from(JSON.stringify(config)).toString('base64url');
   const tag = `<script src="/__ih/captcha/client.js" data-captcha="${encoded}"></script>`;
   return /<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, match => match + tag) : tag + html;

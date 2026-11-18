@@ -573,7 +573,7 @@ function executeInterceptScript(site, rule, req, parsed, upstreamUrl, body) {
       target_url: site.targetBase,
       proxy_prefix: site.proxyPrefix,
     },
-    console: { log: (...args) => console.log(`[intercept:${site.id}]`, ...args) },
+    console: { log: () => logRuleDebug(site, { direction: "intercept" }, "script_log") },
   };
   const script = new vm.Script(`(function(){ "use strict";\n${rule.code}\n})()`, {
     filename: `intercept-${site.id}.js`,
@@ -610,7 +610,7 @@ function sendInterceptResponse(site, rule, result, res) {
   headers["access-control-allow-methods"] = "GET, POST, PUT, DELETE, OPTIONS";
   headers["access-control-allow-headers"] = "*";
   headers["access-control-expose-headers"] = "*";
-  console.log(`[intercept] site=${site.id} match=${rule.matchMode}:${rule.urlPattern} status=${status}`);
+  logRuleDebug(site, { direction: "intercept" }, "completed");
   res.writeHead(status, headers).end(body);
 }
 
@@ -625,7 +625,7 @@ async function handleIntercept(site, req, res, parsed, upstreamUrl) {
   try {
     result = executeInterceptScript(site, rule, req, parsed, upstreamUrl, body);
   } catch (e) {
-    console.error(`[intercept] site=${site.id} script error: ${e.message}`);
+    logRuleDebug(site, { direction: "intercept" }, "error");
     res.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" })
       .end(JSON.stringify({ ok: false, error: "intercept script error" }));
     return;
@@ -723,6 +723,21 @@ function buildScriptRequest(req, parsed, upstreamUrl) {
   };
 }
 
+const scriptDebugRates = new Map();
+function logRuleDebug(site, rule, event) {
+  if (!site.debugEnabled) return;
+  const minute = Math.floor(Date.now() / 60000);
+  let rate = scriptDebugRates.get(site.id);
+  if (!rate || rate.minute !== minute) {
+    if (!scriptDebugRates.has(site.id) && scriptDebugRates.size >= 200) scriptDebugRates.delete(scriptDebugRates.keys().next().value);
+    rate = { minute, count: 0 };
+    scriptDebugRates.set(site.id, rate);
+  }
+  if (rate.count >= 60) return;
+  rate.count++;
+  console.log(`[value-rule] site=${site.id} direction=${rule.direction || "response"} target=${rule.target || "script"} event=${event}`);
+}
+
 function runResponseValueScript(site, rule, value, context) {
   const sandbox = {
     value,
@@ -735,15 +750,18 @@ function runResponseValueScript(site, rule, value, context) {
       target_url: site.targetBase,
       proxy_prefix: site.proxyPrefix,
     },
-    console: { log: (...args) => console.log(`[response:${site.id}]`, ...args) },
+    console: { log: () => logRuleDebug(site, rule, "script_log") },
   };
   const script = new vm.Script(`(function(){ "use strict";\n${rule.code}\n})()`, {
     filename: `response-${site.id}-${rule.target}.js`,
   });
-  return script.runInNewContext(sandbox, {
+  logRuleDebug(site, rule, "started");
+  const result = script.runInNewContext(sandbox, {
     timeout: rule.timeoutMs,
     codeGeneration: { strings: false, wasm: false },
   });
+  logRuleDebug(site, rule, "completed");
+  return result;
 }
 
 function applyResponseHeaderRules(outHeaders, upstreamHeaders, rules, site, context) {
@@ -757,7 +775,7 @@ function applyResponseHeaderRules(outHeaders, upstreamHeaders, rules, site, cont
     try {
       value = runResponseValueScript(site, rule, current === undefined ? "" : current, context);
     } catch (e) {
-      console.error(`[response] site=${site.id} header rule error: ${e.message}`);
+      logRuleDebug(site, rule, "error");
       continue;
     }
     if (value === undefined) continue;
@@ -783,7 +801,7 @@ function applyResponseBodyRules(text, contentType, rules, site, context) {
         try {
           value = runResponseValueScript(site, rule, getJsonPath(data, rule.key), context);
         } catch (e) {
-          console.error(`[response] site=${site.id} json rule error: ${e.message}`);
+          logRuleDebug(site, rule, "error");
           continue;
         }
         if (value !== undefined) setJsonPath(data, rule.key, value);
@@ -799,7 +817,7 @@ function applyResponseBodyRules(text, contentType, rules, site, context) {
       try {
         value = runResponseValueScript(site, rule, current, context);
       } catch (e) {
-        console.error(`[response] site=${site.id} form rule error: ${e.message}`);
+        logRuleDebug(site, rule, "error");
         continue;
       }
       if (value === undefined) continue;
@@ -820,7 +838,7 @@ function applyResponseBodyRules(text, contentType, rules, site, context) {
       try {
         value = runResponseValueScript(site, rule, current, context);
       } catch (e) {
-        console.error(`[response] site=${site.id} text rule error: ${e.message}`);
+        logRuleDebug(site, rule, "error");
         return match;
       }
       if (value === undefined) return match;
@@ -844,6 +862,8 @@ function normalizeSite(raw, index = 0) {
     id: parseSiteId(source.id || `site-${index + 1}`),
     name: parseSiteName(source.name || source.target_url || `Site ${index + 1}`),
     enabled: source.enabled !== false,
+    debugEnabled: source.debug_enabled === true,
+    valueRulesEnabled: source.value_rules_enabled !== false,
     targetBase: tu.toString().replace(/\/$/, ""),
     targetOrigin: tu.origin,
     proxyPrefix: prefix,
@@ -871,6 +891,8 @@ function normalizeConfig(raw) {
     replace_rules: source.replace_rules,
     oauth_bypass_paths: source.oauth_bypass_paths,
     rewrite_request_headers: source.rewrite_request_headers,
+    debug_enabled: source.debug_enabled,
+    value_rules_enabled: source.value_rules_enabled,
     audit_probe: source.audit_probe,
   }];
   const sites = rawSites.map(normalizeSite);
@@ -902,6 +924,8 @@ function loadConfig() { return normalizeConfig(readConfigFile()); }
 function serializeSite(site) {
   return {
     id: site.id, name: site.name, enabled: site.enabled,
+    debug_enabled: site.debugEnabled === true,
+    value_rules_enabled: site.valueRulesEnabled !== false,
     target_url: site.targetBase, proxy_prefix: site.proxyPrefix,
     replace_rules: site.replaceRules, oauth_bypass_paths: site.oauthBypassPaths || [],
     rewrite_request_headers: site.rewriteRequestHeaders !== false,
@@ -1637,11 +1661,11 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
     return;
   }
 
-  const requestRules = (config.responseRules || []).filter(rule =>
+  const requestRules = (config.valueRulesEnabled === false ? [] : config.responseRules || []).filter(rule =>
     rule.enabled && rule.direction === "request" && interceptMatches(rule, upstreamUrl, parsed.pathname + parsed.search));
   let requestBody = null;
   let originalRequestBody = null;
-  const requestContext = { request: buildScriptRequest(req, parsed, upstreamUrl), response: null };
+  const requestContext = requestRules.length ? { request: buildScriptRequest(req, parsed, upstreamUrl), response: null } : null;
   const bodyRules = requestRules.filter(rule => ["json", "form", "text"].includes(rule.target));
   if (bodyRules.length && !["GET", "HEAD"].includes(req.method)) {
     const encoding = String(req.headers["content-encoding"] || "identity").toLowerCase();
@@ -1681,11 +1705,11 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
     }
   }
   if (requestBody !== null) fwdHeaders["content-length"] = String(requestBody.length);
-  const responseRules = (config.responseRules || []).filter(rule =>
+  const responseRules = (config.valueRulesEnabled === false ? [] : config.responseRules || []).filter(rule =>
     rule.enabled && rule.direction !== "request" && interceptMatches(rule, upstreamUrl, parsed.pathname + parsed.search));
   const responseHeaderRules = responseRules.filter(rule => rule.target === "header");
   const responseBodyRules = responseRules.filter(rule => rule.target !== "header");
-  const scriptContext = { request: buildScriptRequest(req, parsed, upstreamUrl), response: null };
+  const scriptContext = responseRules.length ? { request: buildScriptRequest(req, parsed, upstreamUrl), response: null } : null;
 
   const requestCapture = config.auditProbe.enabled ? createBodyCapture(req.headers["content-type"], auditMaxBodyBytes) : null;
   const startedAt = Date.now();
@@ -1741,7 +1765,7 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
     const applyBodyRules = text => {
       if (!responseBodyRules.length) return text;
       try { return applyResponseBodyRules(text, responseContentType, responseBodyRules, config, ruleContext); }
-      catch (e) { console.error(`[response] site=${config.id} body rule error: ${e.message}`); return text; }
+      catch (e) { logRuleDebug(config, { direction: "response" }, "error"); return text; }
     };
     const cacheFallback = body => {
       if (requestRules.length || responseBodyRules.length || config.captcha.enabled) return;
