@@ -108,6 +108,20 @@ async function main() {
   }
   evaluate('loadCaptchaForm({})');
   assert.equal(evaluate('collectCaptchaForm().mode'), 'native_first');
+  assert.match(html, /id="siteCaptchaLimit"[^>]*min="1"[^>]*max="100"/);
+  for (const lang of ['zh', 'en']) {
+    evaluate(`LANG='${lang}'`);
+    for (const limit of [1, 20, 21, 100]) {
+      evaluate(`$('siteCaptchaLimit').value='${limit}'`);
+      assert.equal(evaluate('collectCaptchaForm().max_tasks_per_hour'), limit);
+    }
+    for (const limit of ['', '0', '-1', '101', '1.5', 'invalid']) {
+      evaluate(`$('siteCaptchaLimit').value=${JSON.stringify(limit)}`);
+      assert.throws(() => evaluate('collectCaptchaForm()'), /1[– ](?:to )?100/);
+    }
+    assert.equal(evaluate("localizeError('captcha: hourly limit must be 1-100')"), evaluate("t('captcha.invalidLimit')"));
+  }
+  evaluate("$('siteCaptchaLimit').value='100'");
   evaluate("$('siteCaptchaMode').value='provider_only';$('siteCaptchaSelector').value='#token';$('siteCaptchaCallback').value='app.onVerified';$('siteCaptchaFieldName').value='verification_token'");
   assert.equal(evaluate('collectCaptchaForm().response_selector'), '#token');
   assert.equal(evaluate('collectCaptchaForm().callback_path'), 'app.onVerified');

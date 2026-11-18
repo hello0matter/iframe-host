@@ -36,6 +36,12 @@ function rejects(fn, code) { assert.throws(fn, error => error.code === code); }
 async function main() {
   assert.equal(normalizeCaptcha().enabled, false);
   assert.equal(normalizeCaptcha().max_tasks_per_hour, 3);
+  for (const limit of [1, 20, 21, 100]) {
+    assert.equal(normalizeCaptcha({ max_tasks_per_hour: limit }).max_tasks_per_hour, limit);
+  }
+  for (const limit of [0, -1, 101, 1.5, 'invalid', '']) {
+    assert.throws(() => normalizeCaptcha({ max_tasks_per_hour: limit }), /hourly limit must be 1-100/);
+  }
   assert.equal(normalizeCaptcha().mode, 'native_first');
   assert.equal(normalizeCaptcha().result_ttl_seconds, 120);
   for (const raw of [{ mode: 'force-button' }, { response_selector: [] }, { response_selector: '\n' }, { response_field_name: 'invalid name' }, { callback_path: 'alert(token)' }, { callback_path: 'app.__proto__.callback' }, { callback_path: 'constructor.constructor' }, { result_ttl_seconds: 999 }]) assert.throws(() => normalizeCaptcha(raw));

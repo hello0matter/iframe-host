@@ -29,7 +29,7 @@ function normalizeCaptcha(raw = {}) {
   if (enabled && !site_key) throw new Error('captcha: site key is required');
   if (typeof page_path !== 'string' || !/^\/(?!\/)[A-Za-z0-9/_~.-]*$/.test(page_path) || page_path.split('/').some(p => p === '.' || p === '..')) throw new Error('captcha: invalid page path');
   if (!Number.isInteger(timeout_seconds) || timeout_seconds < 30 || timeout_seconds > 180) throw new Error('captcha: timeout must be 30-180 seconds');
-  if (!Number.isInteger(max_tasks_per_hour) || max_tasks_per_hour < 1 || max_tasks_per_hour > 20) throw new Error('captcha: hourly limit must be 1-20');
+  if (!Number.isInteger(max_tasks_per_hour) || max_tasks_per_hour < 1 || max_tasks_per_hour > 100) throw new Error('captcha: hourly limit must be 1-100');
   if (!['native_first', 'provider_only'].includes(mode)) throw new Error('captcha: invalid compatibility mode');
   if (typeof response_selector !== 'string' || response_selector.length > 500 || /[\x00-\x1f]/.test(response_selector)) throw new Error('captcha: invalid response selector');
   if (typeof response_field_name !== 'string' || (response_field_name && !/^[A-Za-z_][A-Za-z0-9_.:-]{0,127}$/.test(response_field_name))) throw new Error('captcha: invalid response field name');

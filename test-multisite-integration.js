@@ -217,8 +217,13 @@ async function main() {
   assert.ok(captchaClient.text.includes('__ihCaptchaInstalled'));
   const privateCaptchaStatus = await request(apiUrl('/api/sites/default/captcha-status'));
   assert.strictEqual(privateCaptchaStatus.response.status, 401);
-  const adapterSaved = await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV', mode: 'provider_only', response_field_name: 'verification-token', callback_path: 'app.onVerified', result_ttl_seconds: 60 } }) });
+  const adapterSaved = await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV', max_tasks_per_hour: 100, mode: 'provider_only', response_field_name: 'verification-token', callback_path: 'app.onVerified', result_ttl_seconds: 60 } }) });
   assert.strictEqual(adapterSaved.site.captcha.mode, 'provider_only');
+  assert.strictEqual(adapterSaved.site.captcha.max_tasks_per_hour, 100);
+  const savedWithLimit = await api('/api/sites/default', token);
+  assert.strictEqual(savedWithLimit.site.captcha.max_tasks_per_hour, 100);
+  const badLimit = await request(apiUrl('/api/sites/default'), { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ captcha: { max_tasks_per_hour: 101 } }) });
+  assert.strictEqual(badLimit.response.status, 400);
   assert.strictEqual(adapterSaved.site.captcha.response_field_name, 'verification-token');
   const badAdapter = await request(apiUrl('/api/sites/default'), { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ captcha: { callback_path: 'constructor.constructor' } }) });
   assert.strictEqual(badAdapter.response.status, 400);
