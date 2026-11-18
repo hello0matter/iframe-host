@@ -20,6 +20,8 @@ $items = @(
     "README.md",
     "server.js",
     "captcha-service.js",
+    "api-proxy.js",
+    "test-api-proxy.js",
     "test-admin-ui.js",
     "test-captcha-service.js",
     "test-captcha-client.js",

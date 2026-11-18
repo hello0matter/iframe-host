@@ -129,6 +129,23 @@ async function main() {
     }
     assert.ok(!text.includes('console.log'), 'examples must not encourage logging verification tokens');
   }
+  evaluate('loadApiProxyForm({})');
+  assert.deepEqual(JSON.parse(evaluate('JSON.stringify(collectApiProxyForm())')), { enabled: false, path_prefixes: ['/v1'], first_byte_timeout_seconds: 120, idle_timeout_seconds: 120, apply_request_rules: false, rewrite_request_headers: false });
+  for (const bad of ['', 'v1', '//v1', '/v1//x', '/v1/../x', '/v1?key=1', '/v1/*']) {
+    evaluate(`$('siteApiPaths').value=${JSON.stringify(bad)}`);
+    assert.throws(() => evaluate('collectApiProxyForm()'), /API/);
+  }
+  evaluate("loadApiProxyForm({enabled:true,path_prefixes:['/v1','/api/v2'],first_byte_timeout_seconds:300,idle_timeout_seconds:60,apply_request_rules:true,rewrite_request_headers:true})");
+  assert.equal(evaluate('collectApiProxyForm().enabled'), true);
+  assert.equal(evaluate('collectApiProxyForm().path_prefixes.join()'), '/v1,/api/v2');
+  assert.equal(evaluate('collectApiProxyForm().first_byte_timeout_seconds'), 300);
+  assert.equal(evaluate('collectApiProxyForm().apply_request_rules'), true);
+  for (const n of ['0', '3601', '1.5', '']) {
+    evaluate(`$('siteApiIdleTimeout').value=${JSON.stringify(n)}`);
+    assert.throws(() => evaluate('collectApiProxyForm()'), /API/);
+  }
+  evaluate('loadApiProxyForm({})');
+  for (const id of ['siteApiEnabled', 'siteApiPaths', 'siteApiFirstTimeout', 'siteApiIdleTimeout', 'siteApiRules', 'siteApiRewriteHeaders']) assert.ok(html.includes('id="' + id + '"'));
   evaluate('loadCaptchaForm({})');
   assert.equal(evaluate('collectCaptchaForm().mode'), 'native_first');
   assert.equal(evaluate('collectCaptchaForm().waiting_message'), '');

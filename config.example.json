@@ -12,6 +12,14 @@
       "name": "Documentation",
       "enabled": true,
       "debug_enabled": false,
+      "api_proxy": {
+        "enabled": false,
+        "path_prefixes": ["/v1"],
+        "first_byte_timeout_seconds": 120,
+        "idle_timeout_seconds": 120,
+        "apply_request_rules": false,
+        "rewrite_request_headers": false
+      },
       "value_rules_enabled": true,
       "target_url": "https://docs.example.com/",
       "proxy_prefix": "/internal-content",

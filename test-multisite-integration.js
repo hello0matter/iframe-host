@@ -31,6 +31,8 @@ let upstreamOne;
 let upstreamTwo;
 let lastUpstreamOneHeaders = {};
 let lastUpstreamOneUrl = "";
+let apiStreamEnded = false;
+let apiDisconnected = false;
 
 function listen(server, port) {
   return new Promise(resolve => server.listen(port, "127.0.0.1", resolve));
@@ -41,7 +43,8 @@ function createTlsUpstream(port, handler) {
     const chunks = [];
     req.on("data", chunk => chunks.push(chunk));
     req.on("end", () => {
-      const result = handler({ method: req.method, url: req.url, headers: req.headers, body: Buffer.concat(chunks) });
+      const result = handler({ method: req.method, url: req.url, headers: req.headers, body: Buffer.concat(chunks) }, res);
+      if (!result) return;
       const responseBody = Buffer.isBuffer(result.body) ? result.body : Buffer.from(result.body || "");
       const headers = { "content-type": result.contentType || "text/plain", "content-length": responseBody.length, ...(result.headers || {}) };
       if (result.contentEncoding) headers["content-encoding"] = result.contentEncoding;
@@ -108,6 +111,7 @@ async function main() {
   fs.mkdirSync(tlsDir, { recursive: true });
   execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", tlsKeyPath, "-out", tlsCertPath, "-subj", "/CN=127.0.0.1", "-days", "1"], { stdio: "ignore" });
   fs.copyFileSync(SERVER_SOURCE, path.join(tmp, "server.js"));
+  fs.copyFileSync(path.join(ROOT, 'api-proxy.js'), path.join(tmp, 'api-proxy.js'));
   fs.copyFileSync(path.join(ROOT, 'captcha-service.js'), path.join(tmp, 'captcha-service.js'));
   fs.copyFileSync(path.join(ROOT, 'public', 'captcha-client.js'), path.join(adminPath, 'captcha-client.js'));
   fs.copyFileSync(ADMIN_SOURCE, path.join(adminPath, "admin.html"));
@@ -131,9 +135,33 @@ async function main() {
     },
   }));
 
-  upstreamOne = createTlsUpstream(upstreamOnePort, request => {
+  upstreamOne = createTlsUpstream(upstreamOnePort, (request, rawResponse) => {
     lastUpstreamOneHeaders = request.headers;
     lastUpstreamOneUrl = request.url;
+    if (request.url.startsWith('/v1/')) {
+      if (['/v1/stream', '/v1/disconnect', '/v1/idle'].includes(request.url)) {
+        rawResponse.writeHead(200, { 'content-type': 'text/event-stream', 'x-api-original': 'yes' });
+        rawResponse.write('data: first\n\n');
+        if (request.url === '/v1/stream') {
+          apiStreamEnded = false;
+          setTimeout(() => { apiStreamEnded = true; rawResponse.end('data: last\n\n'); }, 250);
+        } else rawResponse.once('close', () => { apiDisconnected = true; });
+        return;
+      }
+      if (request.url === '/v1/slow-headers') {
+        const timer = setTimeout(() => { rawResponse.writeHead(200); rawResponse.end('late'); }, 1500);
+        rawResponse.once('close', () => clearTimeout(timer));
+        return;
+      }
+      if (request.url === '/v1/delayed') {
+        setTimeout(() => { rawResponse.writeHead(200, { 'content-type': 'application/json' }); rawResponse.end('{"slow":true}'); }, 250);
+        return;
+      }
+      if (request.url === '/v1/bytes') return { contentType: 'application/octet-stream', body: request.body };
+      if (request.url === '/v1/compressed') return { contentType: 'application/json', contentEncoding: 'gzip', body: zlib.gzipSync(JSON.stringify({ url: `https://127.0.0.1:${upstreamOnePort}/v1/original` })) };
+      if (request.url === '/v1/error') return { status: 429, contentType: 'application/json', headers: { 'retry-after': '7' }, body: '{"error":"rate limit"}' };
+      return { contentType: 'application/json', body: JSON.stringify({ url: `https://127.0.0.1:${upstreamOnePort}/v1/original`, path: request.url, method: request.method, headers: request.headers, body: request.body.toString('utf8') }) };
+    }
     if (request.url.startsWith("/request-mutate")) return { contentType: "application/json", body: JSON.stringify({ url: request.url, headers: request.headers, body: request.body.toString("utf8") }) };
     if (request.url === "/page.html") {
       return {
@@ -474,6 +502,82 @@ async function main() {
   assert.strictEqual(upload.json.headers["x-custom"], "streamed");
   await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ response_rules: responseRules }) });
 
+  const apiConfig = { enabled: true, path_prefixes: ['/v1'], first_byte_timeout_seconds: 1, idle_timeout_seconds: 1, apply_request_rules: false, rewrite_request_headers: false };
+  const apiRules = [
+    rule('header', 'x-api-rule', 'return "changed";', { url_pattern: '/v1' }),
+    { enabled: true, direction: 'response', url_pattern: '/v1', match_mode: 'literal', target: 'json', key: 'url', code: 'return "wrong";' },
+  ];
+  const apiSaved = await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ api_proxy: apiConfig, response_rules: apiRules, audit_probe: { enabled: true }, intercept: { enabled: true, url_pattern: '/v1', match_mode: 'literal', code: 'return "intercepted";' } }) });
+  assert.deepStrictEqual(apiSaved.site.api_proxy, apiConfig);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')).sites.find(s => s.id === 'default').api_proxy, apiConfig);
+  const apiBase = `http://127.0.0.1:${proxyPort}/one`;
+  const apiHeaders = { Authorization: 'Bearer test-api-key', 'content-type': 'application/json', Origin: `http://127.0.0.1:${proxyPort}`, Referer: `${apiBase}/login` };
+  const apiBody = JSON.stringify({ message: '中文', stream: true });
+  const echoed = await request(apiBase + '/v1/echo?x=1', { method: 'POST', headers: apiHeaders, body: apiBody });
+  assert.strictEqual(echoed.response.status, 200, echoed.text);
+  assert.strictEqual(echoed.json.url, `https://127.0.0.1:${upstreamOnePort}/v1/original`);
+  assert.strictEqual(echoed.json.path, '/v1/echo?x=1');
+  assert.strictEqual(echoed.json.body, apiBody);
+  assert.strictEqual(echoed.json.headers.authorization, 'Bearer test-api-key');
+  assert.strictEqual(echoed.json.headers.origin, apiHeaders.Origin);
+  assert.strictEqual(echoed.json.headers.referer, apiHeaders.Referer);
+  assert.strictEqual(echoed.json.headers['x-api-rule'], undefined);
+  assert.strictEqual(echoed.response.headers.get('x-accel-buffering'), 'no');
+  const binaryApiBody = Buffer.from([0, 1, 255, 128]);
+  const apiBinary = await requestBuffer(apiBase + '/v1/bytes', { method: 'POST', body: binaryApiBody });
+  assert.deepStrictEqual(apiBinary.body, binaryApiBody);
+  const compressedApiBody = zlib.gzipSync(apiBody);
+  const apiCompressedUpload = await requestBuffer(apiBase + '/v1/bytes', { method: 'POST', headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' }, body: compressedApiBody });
+  assert.deepStrictEqual(apiCompressedUpload.body, compressedApiBody);
+  const apiCompressed = await request(apiBase + '/v1/compressed');
+  assert.strictEqual(apiCompressed.response.headers.get('content-encoding'), 'gzip');
+  assert.strictEqual(apiCompressed.json.url, `https://127.0.0.1:${upstreamOnePort}/v1/original`);
+  const apiError = await request(apiBase + '/v1/error');
+  assert.strictEqual(apiError.response.status, 429);
+  assert.strictEqual(apiError.response.headers.get('retry-after'), '7');
+  const slowApi = await request(apiBase + '/v1/delayed');
+  assert.strictEqual(slowApi.response.status, 200, slowApi.text);
+  assert.deepStrictEqual(slowApi.json, { slow: true });
+  const apiStream = await fetch(apiBase + '/v1/stream');
+  const streamReader = apiStream.body.getReader();
+  assert.strictEqual(apiStream.headers.get('x-api-original'), 'yes');
+  assert.ok(Buffer.from((await streamReader.read()).value).toString().includes('data: first'));
+  assert.strictEqual(apiStreamEnded, false, 'SSE must not wait for the complete response even with audit and response rules enabled');
+  let streamTail = '';
+  for (;;) { const chunk = await streamReader.read(); if (chunk.done) break; streamTail += Buffer.from(chunk.value).toString(); }
+  assert.ok(streamTail.includes('data: last'));
+  const disconnectedStream = await fetch(apiBase + '/v1/disconnect');
+  const disconnectedReader = disconnectedStream.body.getReader();
+  await disconnectedReader.read();
+  await disconnectedReader.cancel();
+  for (let i = 0; i < 30 && !apiDisconnected; i++) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.strictEqual(apiDisconnected, true, 'client cancellation must stop upstream streaming');
+  const idleStream = await fetch(apiBase + '/v1/idle');
+  const idleReader = idleStream.body.getReader();
+  await idleReader.read();
+  await assert.rejects(idleReader.read(), /terminated|aborted|socket/i);
+  const apiTimedOut = await request(apiBase + '/v1/slow-headers');
+  assert.strictEqual(apiTimedOut.response.status, 504);
+  assert.strictEqual((await request(apiBase + '/v1/echo')).response.status, 200, 'API timeouts must not trip the web fallback circuit');
+  assert.strictEqual((await api('/api/sites/default/audit-logs', token)).total, 0, 'API payloads must not enter the web audit store');
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ audit_probe: { enabled: false } }) });
+  assert.strictEqual((await request(apiBase + '/v10/hello')).text, 'intercepted', '/v10 must keep web intercept behavior, not match /v1 API mode');
+  assert.strictEqual((await request(`http://127.0.0.1:${proxyPort}/two/v1/echo`)).text, 'two:/v1/echo');
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ api_proxy: { ...apiConfig, apply_request_rules: true, rewrite_request_headers: true } }) });
+  const apiWithRules = await request(apiBase + '/v1/echo', { headers: apiHeaders });
+  assert.strictEqual(apiWithRules.json.headers['x-api-rule'], 'changed');
+  assert.strictEqual(apiWithRules.json.headers.origin, `https://127.0.0.1:${upstreamOnePort}`);
+  assert.strictEqual(apiWithRules.json.headers.referer, `https://127.0.0.1:${upstreamOnePort}/login`);
+  for (const invalid of [{ first_byte_timeout_seconds: 0 }, { idle_timeout_seconds: 3601 }, { path_prefixes: ['/v1?x=1'] }]) {
+    const rejected = await request(apiUrl('/api/sites/default'), { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ api_proxy: { ...apiConfig, ...invalid } }) });
+    assert.strictEqual(rejected.response.status, 400);
+  }
+  assert.strictEqual((await api('/api/sites/default/audit-logs', token)).total, 0, 'API payloads must not enter the web audit store');
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ api_proxy: { ...apiConfig, enabled: false }, response_rules: responseRules, audit_probe: { enabled: false }, intercept: { enabled: false } }) });
+  const restoredWeb = await request(apiBase + '/v1/echo');
+  assert.strictEqual(restoredWeb.response.status, 200);
+  assert.ok(restoredWeb.json.url.includes('/one/v1/original'), 'turning off passthrough restores web response rewriting');
+
   const beforeAudit = await api("/api/sites/default/audit-logs", token);
   assert.strictEqual(beforeAudit.total, 0);
   const auditUpdate = await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ audit_probe: { enabled: true } }) });
@@ -505,6 +609,11 @@ async function main() {
   assert.strictEqual((await api("/api/sites/default/audit-logs", token)).total, 0);
 
   await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ target_url: "https://127.0.0.1:1/" }) });
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ api_proxy: { enabled: true, path_prefixes: ['/cached'] } }) });
+  const uncachedApiFailure = await request(`http://127.0.0.1:${proxyPort}/one/cached`);
+  assert.strictEqual(uncachedApiFailure.response.status, 502, 'API failures must not return a cached web page');
+  assert.strictEqual(uncachedApiFailure.response.headers.get('x-iframe-fallback'), null);
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ api_proxy: { enabled: false } }) });
   const cached = await request(`http://127.0.0.1:${proxyPort}/one/cached`);
   assert.strictEqual(cached.response.status, 200);
   assert.strictEqual(cached.response.headers.get("x-iframe-fallback"), "stale");

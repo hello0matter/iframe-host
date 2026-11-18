@@ -10,6 +10,7 @@ const zlib = require("zlib");
 const net = require("net");
 const vm = require("vm");
 const { normalizeCaptcha, createCaptchaService, injectCaptcha, CaptchaError } = require('./captcha-service');
+const { normalizeApiProxy, matchesApiProxy } = require('./api-proxy');
 const { spawnSync } = require("child_process");
 
 const ROOT = __dirname;
@@ -874,6 +875,7 @@ function normalizeSite(raw, index = 0) {
     intercept: parseInterceptConfig(source.intercept),
     responseRules: parseResponseRules(source.response_rules),
     captcha: normalizeCaptcha(source.captcha),
+    apiProxy: normalizeApiProxy(source.api_proxy),
   };
 }
 
@@ -893,6 +895,7 @@ function normalizeConfig(raw) {
     rewrite_request_headers: source.rewrite_request_headers,
     debug_enabled: source.debug_enabled,
     value_rules_enabled: source.value_rules_enabled,
+    api_proxy: source.api_proxy,
     audit_probe: source.audit_probe,
   }];
   const sites = rawSites.map(normalizeSite);
@@ -933,6 +936,7 @@ function serializeSite(site) {
     intercept: serializeIntercept(site.intercept),
     response_rules: serializeResponseRules(site.responseRules),
     captcha: site.captcha,
+    api_proxy: site.apiProxy,
   };
 }
 
@@ -1626,10 +1630,14 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
   try { parsed = new URL(upstreamPath, "http://proxy.local"); }
   catch { return res.status(400).end(); }
 
-  if (config.oauthBypassPaths && config.oauthBypassPaths.some(bypassPath => parsed.pathname === bypassPath || parsed.pathname.startsWith(bypassPath + "/"))) {
+  const apiMode = matchesApiProxy(config.apiProxy, parsed.pathname);
+  if (!apiMode && config.oauthBypassPaths && config.oauthBypassPaths.some(bypassPath => parsed.pathname === bypassPath || parsed.pathname.startsWith(bypassPath + "/"))) {
     return res.writeHead(302, { Location: config.targetBase + parsed.pathname + parsed.search }).end();
   }
 
+  const requestRulesAllowed = !apiMode || config.apiProxy.apply_request_rules;
+  const firstByteTimeout = apiMode ? config.apiProxy.first_byte_timeout_seconds * 1000 : UPSTREAM_TIMEOUT_MS;
+  const idleTimeout = apiMode ? config.apiProxy.idle_timeout_seconds * 1000 : UPSTREAM_TIMEOUT_MS;
   const fwdHeaders = {};
   for (const [key, value] of Object.entries(req.headers)) {
     const lowerKey = key.toLowerCase();
@@ -1638,11 +1646,13 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
   fwdHeaders.host = new URL(config.targetOrigin).host;
   // Some upstreams emit compressed bodies without a usable encoding header after redirects.
   // Request an identity representation so rewritten text is always safe to serve and cache.
-  for (const key of Object.keys(fwdHeaders)) {
-    if (key.toLowerCase() === "accept-encoding") delete fwdHeaders[key];
+  if (!apiMode) {
+    for (const key of Object.keys(fwdHeaders)) {
+      if (key.toLowerCase() === "accept-encoding") delete fwdHeaders[key];
+    }
+    fwdHeaders["accept-encoding"] = "identity";
   }
-  fwdHeaders["accept-encoding"] = "identity";
-  if (config.rewriteRequestHeaders) {
+  if (apiMode ? config.apiProxy.rewrite_request_headers : config.rewriteRequestHeaders) {
     if (fwdHeaders.referer && fwdHeaders.referer.includes(req.headers.host)) {
       try {
         const refUrl = new URL(fwdHeaders.referer);
@@ -1655,13 +1665,13 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
   }
 
   let upstreamUrl = config.targetBase + parsed.pathname + parsed.search;
-  if (config.intercept && config.intercept.enabled &&
+  if (!apiMode && config.intercept && config.intercept.enabled &&
       interceptMatches(config.intercept, upstreamUrl, parsed.pathname + parsed.search)) {
     handleIntercept(config, req, res, parsed, upstreamUrl);
     return;
   }
 
-  const requestRules = (config.valueRulesEnabled === false ? [] : config.responseRules || []).filter(rule =>
+  const requestRules = (!requestRulesAllowed || config.valueRulesEnabled === false ? [] : config.responseRules || []).filter(rule =>
     rule.enabled && rule.direction === "request" && interceptMatches(rule, upstreamUrl, parsed.pathname + parsed.search));
   let requestBody = null;
   let originalRequestBody = null;
@@ -1706,16 +1716,16 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
     }
   }
   if (requestBody !== null) fwdHeaders["content-length"] = String(requestBody.length);
-  const responseRules = (config.valueRulesEnabled === false ? [] : config.responseRules || []).filter(rule =>
+  const responseRules = (apiMode || config.valueRulesEnabled === false ? [] : config.responseRules || []).filter(rule =>
     rule.enabled && rule.direction !== "request" && interceptMatches(rule, upstreamUrl, parsed.pathname + parsed.search));
   const responseHeaderRules = responseRules.filter(rule => rule.target === "header");
   const responseBodyRules = responseRules.filter(rule => rule.target !== "header");
   const scriptContext = responseRules.length ? { request: buildScriptRequest(req, parsed, upstreamUrl), response: null } : null;
 
-  const requestCapture = config.auditProbe.enabled ? createBodyCapture(req.headers["content-type"], auditMaxBodyBytes) : null;
+  const requestCapture = !apiMode && config.auditProbe.enabled ? createBodyCapture(req.headers["content-type"], auditMaxBodyBytes) : null;
   const startedAt = Date.now();
   const unavailableUntil = unavailableUpstreams.get(config.targetOrigin) || 0;
-  if (unavailableUntil > startedAt) {
+  if (!apiMode && unavailableUntil > startedAt) {
     if (!serveFallback(config, req, res, parsed)) res.writeHead(503).end("upstream unavailable");
     return;
   }
@@ -1724,6 +1734,11 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
   const transport = up.protocol === "https:" ? https : http;
   let upstreamTimer;
   const failUpstream = (status, message) => {
+    if (apiMode) {
+      if (res.headersSent) res.destroy();
+      else if (!res.destroyed) res.writeHead(status).end(message);
+      return;
+    }
     unavailableUpstreams.set(config.targetOrigin, Date.now() + UPSTREAM_FAILURE_BACKOFF_MS);
     if (!res.headersSent && !serveFallback(config, req, res, parsed)) res.writeHead(status).end(message);
   };
@@ -1737,7 +1752,24 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
     agent: up.protocol === "https:" ? upstreamHttpsAgent : upstreamHttpAgent,
   }, proxyRes => {
     clearTimeout(upstreamTimer);
-    unavailableUpstreams.delete(config.targetOrigin);
+    if (!apiMode) unavailableUpstreams.delete(config.targetOrigin);
+    if (apiMode) {
+      const headers = {};
+      for (const [key, value] of Object.entries(proxyRes.headers)) {
+        if (!HOP_BY_HOP.has(key.toLowerCase())) headers[key] = value;
+      }
+      headers['x-accel-buffering'] = 'no';
+      headers['cache-control'] = 'no-store';
+      proxyReq.setTimeout(idleTimeout, () => {
+        proxyRes.destroy();
+        res.destroy();
+      });
+      proxyRes.on('error', () => res.destroy());
+      res.writeHead(proxyRes.statusCode, headers);
+      res.flushHeaders();
+      proxyRes.pipe(res);
+      return;
+    }
     const outHeaders = {};
     for (const [key, value] of Object.entries(proxyRes.headers)) {
       const lowerKey = key.toLowerCase();
@@ -1839,17 +1871,26 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
   upstreamTimer = setTimeout(() => {
     proxyReq.destroy();
     failUpstream(504, "timeout");
-  }, UPSTREAM_TIMEOUT_MS);
-  proxyReq.setTimeout(UPSTREAM_TIMEOUT_MS, () => {
+  }, firstByteTimeout);
+  if (apiMode) proxyReq.setTimeout(0);
+  else proxyReq.setTimeout(idleTimeout, () => {
     clearTimeout(upstreamTimer);
     proxyReq.destroy();
     failUpstream(504, "timeout");
   });
+  if (apiMode) {
+    const disconnect = () => {
+      clearTimeout(upstreamTimer);
+      if (!res.writableEnded) proxyReq.destroy();
+    };
+    req.once('aborted', disconnect);
+    res.once('close', disconnect);
+  }
   proxyReq.on("error", () => {
     clearTimeout(upstreamTimer);
     failUpstream(502, "error");
   });
-  if (!["GET", "HEAD"].includes(req.method)) {
+  if (apiMode || !["GET", "HEAD"].includes(req.method)) {
     if (requestBody !== null) {
       if (requestCapture) requestCapture.write(originalRequestBody);
       proxyReq.end(requestBody);

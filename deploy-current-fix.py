@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "ops" / "lib"))
 from remote import connect, print_result, run  # type: ignore
 
 FILES = [
+    (ROOT / "api-proxy.js", "/opt/iframe-host/api-proxy.js"),
     (ROOT / "captcha-service.js", "/opt/iframe-host/captcha-service.js"),
     (ROOT / "public" / "captcha-client.js", "/opt/iframe-host/public/captcha-client.js"),
     (ROOT / "server.js", "/opt/iframe-host/server.js"),
@@ -41,6 +42,7 @@ def main() -> int:
             'set -euo pipefail; STAMP=$(date +%Y%m%d-%H%M%S); '
             'BACKUP=/root/iframe-host-backups/deploy-$STAMP; mkdir -p "$BACKUP"; '
             'cp -a /opt/iframe-host/server.js /opt/iframe-host/public/admin.html "$BACKUP"/; '
+            '[ ! -f /opt/iframe-host/api-proxy.js ] || cp -a /opt/iframe-host/api-proxy.js "$BACKUP"/; '
             '[ ! -f /opt/iframe-host/captcha-service.js ] || cp -a /opt/iframe-host/captcha-service.js "$BACKUP"/; '
             '[ ! -f /opt/iframe-host/public/captcha-client.js ] || cp -a /opt/iframe-host/public/captcha-client.js "$BACKUP"/; '
             '[ ! -f /etc/iframe-host/fallback-cache.json ] || cp -a /etc/iframe-host/fallback-cache.json "$BACKUP"/; '

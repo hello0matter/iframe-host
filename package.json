@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check captcha-service.js && node --check public/captcha-client.js && node --check refresh-fallback-cache.js && node check-config.js config.example.json && node test-admin-ui.js && node test-captcha-service.js && node test-captcha-client.js",
+    "check": "node --check server.js && node --check api-proxy.js && node test-api-proxy.js && node --check captcha-service.js && node --check public/captcha-client.js && node --check refresh-fallback-cache.js && node check-config.js config.example.json && node test-admin-ui.js && node test-captcha-service.js && node test-captcha-client.js",
     "refresh-fallback-cache": "node refresh-fallback-cache.js",
     "package": "powershell -ExecutionPolicy Bypass -File ./package-deploy.ps1"
   },
