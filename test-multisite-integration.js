@@ -30,6 +30,7 @@ let proxy;
 let upstreamOne;
 let upstreamTwo;
 let lastUpstreamOneHeaders = {};
+let lastUpstreamOneUrl = "";
 
 function listen(server, port) {
   return new Promise(resolve => server.listen(port, "127.0.0.1", resolve));
@@ -132,6 +133,8 @@ async function main() {
 
   upstreamOne = createTlsUpstream(upstreamOnePort, request => {
     lastUpstreamOneHeaders = request.headers;
+    lastUpstreamOneUrl = request.url;
+    if (request.url.startsWith("/request-mutate")) return { contentType: "application/json", body: JSON.stringify({ url: request.url, headers: request.headers, body: request.body.toString("utf8") }) };
     if (request.url === "/page.html") {
       return {
         contentType: "text/html",
@@ -355,6 +358,81 @@ async function main() {
   assert.ok(formMutated.text.includes("n=1"), formMutated.text);
   const unaffectedPage = await request(`http://127.0.0.1:${proxyPort}/one/page.html`);
   assert.ok(unaffectedPage.text.includes("One"), "response rules must only affect matching URLs");
+
+  assert.ok(rulesUpdate.site.response_rules.every(rule => rule.direction === "response"), "legacy rules default to response");
+  const rule = (target, key, code, extra = {}) => ({ enabled: true, direction: "request", url_pattern: "/request-mutate", match_mode: "literal", target, key, code, ...extra });
+  const requestRules = [
+    rule("query", "lang", 'return "zh-CN";'),
+    rule("query", "remove", "return null;"),
+    rule("header", "x-custom", 'return value + "-sent";'),
+    rule("header", "x-stage", 'return response === null ? request.query : "wrong";'),
+    rule("header", "x-drop", "return null;"),
+    rule("header", "host", 'return "invalid.example";'),
+    rule("header", "content-length", 'return "999999";'),
+    rule("header", "x-inject", 'return "bad\\r\\nheader: yes";'),
+    rule("json", "data.n", "return Number(value) + 10;"),
+    rule("json", "data.keep", "return undefined;"),
+    rule("json", "data.note", 'return "中文";'),
+    rule("form", "token", 'return value + "-sent";'),
+    rule("text", "marker=(abc)", 'return "xyz";'),
+    rule("header", "x-error", 'throw new Error("mock failure");'),
+    rule("header", "x-invalid-value", 'return "中文";'),
+    rule("header", "x-disabled", 'return "no";', { enabled: false }),
+    rule("header", "x-other", 'return "no";', { url_pattern: "/elsewhere" }),
+  ];
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ response_rules: [...responseRules, ...requestRules] }) });
+  const sendRequestRule = (body, contentType) => request(`http://127.0.0.1:${proxyPort}/one/request-mutate?remove=1&keep=2`, {
+    method: "POST", headers: { "content-type": contentType, "x-custom": "original", "x-drop": "remove" }, body,
+  });
+  const savedRequestRules = await api("/api/sites/default", token);
+  assert.ok(savedRequestRules.site.response_rules.some(item => item.direction === "request" && item.target === "query"));
+  const diskRules = JSON.parse(fs.readFileSync(configPath, "utf8")).sites.find(site => site.id === "default").response_rules;
+  assert.ok(diskRules.some(item => item.direction === "request" && item.target === "query"));
+  const otherSite = await request(`http://127.0.0.1:${proxyPort}/two/request-mutate?lang=en`);
+  assert.ok(otherSite.text.includes("lang=en"), "request rules must not affect other sites");
+  const changedRequest = await sendRequestRule(JSON.stringify({ data: { n: 1, keep: true } }), "application/json");
+  assert.strictEqual(changedRequest.response.status, 200, changedRequest.text);
+  assert.deepStrictEqual(JSON.parse(changedRequest.json.body), { data: { n: 11, keep: true, note: "中文" } });
+  assert.strictEqual(lastUpstreamOneUrl, "/request-mutate?keep=2&lang=zh-CN");
+  assert.strictEqual(changedRequest.json.url, "/one/request-mutate?keep=2&lang=zh-CN");
+  assert.strictEqual(changedRequest.json.headers["x-custom"], "original-sent");
+  assert.strictEqual(changedRequest.json.headers["x-stage"], "?keep=2&lang=zh-CN");
+  assert.strictEqual(changedRequest.json.headers["x-drop"], undefined);
+  assert.strictEqual(changedRequest.json.headers["x-inject"], undefined);
+  assert.strictEqual(changedRequest.json.headers["x-error"], undefined);
+  assert.strictEqual(changedRequest.json.headers["x-invalid-value"], undefined);
+  assert.strictEqual(changedRequest.json.headers["x-disabled"], undefined);
+  assert.strictEqual(changedRequest.json.headers["x-other"], undefined);
+  assert.strictEqual(changedRequest.json.headers.host, `127.0.0.1:${upstreamOnePort}`);
+  assert.strictEqual(Number(changedRequest.json.headers["content-length"]), Buffer.byteLength(changedRequest.json.body));
+  const formRequest = await sendRequestRule("token=abc&keep=1", "application/x-www-form-urlencoded");
+  assert.strictEqual(formRequest.json.body, "token=abc-sent&keep=1");
+  const textRequest = await sendRequestRule("marker=abc", "text/plain");
+  assert.strictEqual(textRequest.json.body, "marker=xyz");
+  const getRequest = await request(`http://127.0.0.1:${proxyPort}/one/request-mutate?remove=1&keep=2`);
+  assert.strictEqual(getRequest.json.url, "/one/request-mutate?keep=2&lang=zh-CN");
+  assert.strictEqual(getRequest.json.body, "");
+  const untouchedResponse = await request(`http://127.0.0.1:${proxyPort}/one/json-mutate`);
+  assert.deepStrictEqual(untouchedResponse.json, { data: { token: "abc-x", n: 11 }, keep: true });
+  const tooLarge = await sendRequestRule("x".repeat(1024 * 1024 + 1), "text/plain");
+  assert.strictEqual(tooLarge.response.status, 413);
+  const multipart = await sendRequestRule("not-multipart", "multipart/form-data; boundary=x");
+  assert.strictEqual(multipart.response.status, 415);
+  const compressed = await request(`http://127.0.0.1:${proxyPort}/one/request-mutate`, { method: "POST", headers: { "content-type": "application/json", "content-encoding": "gzip" }, body: zlib.gzipSync('{}') });
+  assert.strictEqual(compressed.response.status, 415);
+  for (const invalid of [rule("query", "a", "return 1;", { direction: "response" }), rule("json", "a", "return 1;", { direction: "invalid" })]) {
+    const rejected = await request(apiUrl("/api/sites/default"), { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ response_rules: [invalid] }) });
+    assert.strictEqual(rejected.response.status, 400);
+  }
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ response_rules: responseRules }) });
+
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ response_rules: [rule("header", "x-custom", 'return "streamed";')] }) });
+  const uploadBody = "x".repeat(1024 * 1024 + 1);
+  const upload = await sendRequestRule(uploadBody, "multipart/form-data; boundary=x");
+  assert.strictEqual(upload.response.status, 200);
+  assert.strictEqual(upload.json.body, uploadBody);
+  assert.strictEqual(upload.json.headers["x-custom"], "streamed");
+  await api("/api/sites/default", token, { method: "PUT", body: JSON.stringify({ response_rules: responseRules }) });
 
   const beforeAudit = await api("/api/sites/default/audit-logs", token);
   assert.strictEqual(beforeAudit.total, 0);

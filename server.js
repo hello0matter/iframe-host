@@ -642,7 +642,11 @@ function parseResponseRules(value) {
     const enabled = source.enabled !== false;
     const urlPattern = typeof source.url_pattern === "string" ? source.url_pattern.trim() : "";
     const matchMode = source.match_mode === "literal" ? "literal" : "regex";
-    const target = RESPONSE_TARGETS.has(source.target) ? source.target : "json";
+    const direction = source.direction === undefined ? "response" : source.direction;
+    if (!["request", "response"].includes(direction)) throw new Error(`response_rules[${index}]: invalid direction`);
+    const targets = direction === "request" ? new Set([...RESPONSE_TARGETS, "query"]) : RESPONSE_TARGETS;
+    if (source.target !== undefined && !targets.has(source.target)) throw new Error(`response_rules[${index}]: invalid target`);
+    const target = targets.has(source.target) ? source.target : "json";
     const key = typeof source.key === "string" ? source.key : "";
     const code = typeof source.code === "string" ? source.code : "";
     const timeoutMs = Math.max(50, Math.min(Number(source.timeout_ms) || 1000, 5000));
@@ -661,13 +665,14 @@ function parseResponseRules(value) {
         }
       }
     }
-    return { enabled, urlPattern, matchMode, target, key, code, timeoutMs };
+    return { enabled, direction, urlPattern, matchMode, target, key, code, timeoutMs };
   });
 }
 
 function serializeResponseRules(rules) {
   return (rules || []).map(rule => ({
     enabled: rule.enabled,
+    direction: rule.direction || "response",
     url_pattern: rule.urlPattern,
     match_mode: rule.matchMode,
     target: rule.target,
@@ -1561,7 +1566,37 @@ function serveFallback(site, req, res, parsed) {
 
 // ── Proxy handler ─────────────────────────────────────────────────────────────
 
-function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath, captchaService) {
+function readRuleRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    const finish = (status) => {
+      clearTimeout(timer);
+      req.removeListener("data", onData);
+      req.removeListener("end", onEnd);
+      req.removeListener("error", onError);
+      req.removeListener("aborted", onError);
+      if (status) {
+        req.resume();
+        reject(Object.assign(new Error("Request body unavailable"), { status }));
+      } else resolve(Buffer.concat(chunks));
+    };
+    const onData = chunk => {
+      size += chunk.length;
+      if (size > 1024 * 1024) return finish(413);
+      chunks.push(chunk);
+    };
+    const onEnd = () => finish(0);
+    const onError = () => finish(400);
+    const timer = setTimeout(() => finish(408), 15000);
+    req.on("data", onData);
+    req.once("end", onEnd);
+    req.once("error", onError);
+    req.once("aborted", onError);
+  });
+}
+
+async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath, captchaService) {
   const config = site;
   let parsed;
   try { parsed = new URL(upstreamPath, "http://proxy.local"); }
@@ -1595,15 +1630,59 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     if (fwdHeaders.origin && fwdHeaders.origin.includes(req.headers.host)) fwdHeaders.origin = config.targetOrigin;
   }
 
-  const upstreamUrl = config.targetBase + parsed.pathname + parsed.search;
+  let upstreamUrl = config.targetBase + parsed.pathname + parsed.search;
   if (config.intercept && config.intercept.enabled &&
       interceptMatches(config.intercept, upstreamUrl, parsed.pathname + parsed.search)) {
     handleIntercept(config, req, res, parsed, upstreamUrl);
     return;
   }
 
+  const requestRules = (config.responseRules || []).filter(rule =>
+    rule.enabled && rule.direction === "request" && interceptMatches(rule, upstreamUrl, parsed.pathname + parsed.search));
+  let requestBody = null;
+  let originalRequestBody = null;
+  const requestContext = { request: buildScriptRequest(req, parsed, upstreamUrl), response: null };
+  const bodyRules = requestRules.filter(rule => ["json", "form", "text"].includes(rule.target));
+  if (bodyRules.length && !["GET", "HEAD"].includes(req.method)) {
+    const encoding = String(req.headers["content-encoding"] || "identity").toLowerCase();
+    const contentType = String(req.headers["content-type"] || "");
+    if (encoding !== "identity" || !isTextContentType(contentType)) return res.status(415).end("Request rules require an uncompressed text body");
+    try { originalRequestBody = await readRuleRequestBody(req); }
+    catch (error) { return res.status(error.status || 400).end("Request rule body rejected"); }
+    requestBody = Buffer.from(originalRequestBody);
+    requestContext.request.body = originalRequestBody.toString("utf8");
+  }
+  for (const rule of requestRules) {
+    requestContext.request.url = upstreamUrl;
+    requestContext.request.query = parsed.search;
+    requestContext.request.headers = { ...fwdHeaders };
+    requestContext.request.cookies = parseCookieHeader(fwdHeaders.cookie);
+    if (requestBody !== null) requestContext.request.body = requestBody.toString("utf8");
+    if (rule.target === "query") {
+      const params = parsed.searchParams;
+      let value;
+      try { value = runResponseValueScript(config, rule, params.has(rule.key) ? params.get(rule.key) : undefined, requestContext); }
+      catch { continue; }
+      if (value === null) params.delete(rule.key);
+      else if (value !== undefined) params.set(rule.key, String(value));
+      upstreamUrl = config.targetBase + parsed.pathname + parsed.search;
+    } else if (rule.target === "header") {
+      const lower = rule.key.toLowerCase();
+      if (HOP_BY_HOP.has(lower) || ["host", "content-length", "accept-encoding", "content-encoding", "expect"].includes(lower) || !/^[a-z0-9-]+$/.test(lower)) continue;
+      const before = { ...fwdHeaders };
+      applyResponseHeaderRules(fwdHeaders, before, [{ ...rule, key: lower }], config, requestContext);
+      if (fwdHeaders[lower] !== undefined) {
+        try { http.validateHeaderValue(lower, fwdHeaders[lower]); }
+        catch { if (before[lower] === undefined) delete fwdHeaders[lower]; else fwdHeaders[lower] = before[lower]; }
+      }
+    } else if (requestBody !== null) {
+      requestBody = Buffer.from(applyResponseBodyRules(requestBody.toString("utf8"), req.headers["content-type"] || "", [rule], config, requestContext));
+      if (requestBody.length > 1024 * 1024) return res.status(413).end("Rewritten request body too large");
+    }
+  }
+  if (requestBody !== null) fwdHeaders["content-length"] = String(requestBody.length);
   const responseRules = (config.responseRules || []).filter(rule =>
-    rule.enabled && interceptMatches(rule, upstreamUrl, parsed.pathname + parsed.search));
+    rule.enabled && rule.direction !== "request" && interceptMatches(rule, upstreamUrl, parsed.pathname + parsed.search));
   const responseHeaderRules = responseRules.filter(rule => rule.target === "header");
   const responseBodyRules = responseRules.filter(rule => rule.target !== "header");
   const scriptContext = { request: buildScriptRequest(req, parsed, upstreamUrl), response: null };
@@ -1665,7 +1744,7 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
       catch (e) { console.error(`[response] site=${config.id} body rule error: ${e.message}`); return text; }
     };
     const cacheFallback = body => {
-      if (responseBodyRules.length || config.captcha.enabled) return;
+      if (requestRules.length || responseBodyRules.length || config.captcha.enabled) return;
       fallbackCache.put(config.id, parsed.pathname + parsed.search, responseContentType, body);
     };
     const finishAudit = (body, representation) => {
@@ -1718,7 +1797,7 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
       }
     });
     proxyRes.on("end", () => {
-      if (!staticCacheOverflow && staticCacheChunks.length) {
+      if (!requestRules.length && !staticCacheOverflow && staticCacheChunks.length) {
         fallbackCache.put(config.id, parsed.pathname + parsed.search, responseContentType, Buffer.concat(staticCacheChunks), proxyRes.headers["content-encoding"] || "");
       }
       if (!requestCapture) return;
@@ -1746,8 +1825,13 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     failUpstream(502, "error");
   });
   if (!["GET", "HEAD"].includes(req.method)) {
-    if (requestCapture) req.on("data", chunk => requestCapture.write(chunk));
-    req.pipe(proxyReq);
+    if (requestBody !== null) {
+      if (requestCapture) requestCapture.write(originalRequestBody);
+      proxyReq.end(requestBody);
+    } else {
+      if (requestCapture) req.on("data", chunk => requestCapture.write(chunk));
+      req.pipe(proxyReq);
+    }
   } else proxyReq.end();
 }
 

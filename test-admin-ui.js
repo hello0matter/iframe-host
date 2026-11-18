@@ -75,6 +75,23 @@ async function main() {
     assert.equal(elements.get('siteId').getAttribute('aria-invalid'), 'true');
     assert.ok(elements.get('siteIdError').textContent.includes('my-site'));
   }
+  assert.equal(evaluate("I18N.zh['response.direction']"), '取值方向');
+  const ruleFields = {
+    enabled: 'true', direction: 'request', pattern: '/api/user', mode: 'literal',
+    target: 'query', key: 'lang', timeout: '1000', code: 'return "zh-CN";',
+  };
+  const ruleCard = { querySelector(selector) { return { value: ruleFields[selector.match(/data-response-(.+)\]/)[1]] }; } };
+  const list = elements.get('responseRuleList') || element('responseRuleList');
+  list.querySelectorAll = () => [ruleCard];
+  elements.set('responseRuleList', list);
+  assert.deepEqual(JSON.parse(evaluate('JSON.stringify(collectResponseRules())')), [{
+    enabled: true, direction: 'request', url_pattern: '/api/user', match_mode: 'literal',
+    target: 'query', key: 'lang', code: 'return "zh-CN";', timeout_ms: 1000,
+  }]);
+  ruleFields.direction = 'response';
+  ruleFields.target = 'json';
+  assert.equal(evaluate('collectResponseRules()[0].direction'), 'response');
+  list.querySelectorAll = () => [];
   await evaluate('saveSite()');
   assert.equal(requests, 0, 'invalid ID must be rejected before an API request');
   assert.ok(elements.get('siteSaveStatus').textContent.includes('站点 ID'));
