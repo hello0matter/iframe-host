@@ -105,6 +105,10 @@ async function main() {
       assert.ok(text.includes(example), `${lang} guide must explain ${example}`);
     }
     assert.ok(!/<(?:input|div)\b/i.test(text), 'example markup must be escaped');
+    for (const example of ['window.app.onVerified(token)', 'window.handleCaptcha', 'pageVerified(token)', 'callback: pageVerified', 'window.receivedToken = token;']) {
+      assert.ok(text.includes(example), `${lang} guide must explain callback behavior: ${example}`);
+    }
+    assert.ok(!text.includes('console.log'), 'examples must not encourage logging verification tokens');
   }
   evaluate('loadCaptchaForm({})');
   assert.equal(evaluate('collectCaptchaForm().mode'), 'native_first');

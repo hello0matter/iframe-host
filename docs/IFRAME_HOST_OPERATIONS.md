@@ -132,7 +132,23 @@ Linux 服务通过直连访问 `https://api.2captcha.com`，不使用 Windows �
 
 1. **已有输入框，用选择器。**假设页面有 `<input type="hidden" id="captcha-token" name="verification">`，选择器填 `#captcha-token`，表示把结果写进这个已有输入框。若源码只有 `<div id="captcha-token">`，那只是外面的盒子，不是提交值的字段，不能照搬这个 ID。指定选择器找不到输入框时，不创建任务。
 2. **只知道提交的字段名，用字段名。**假设网站需要 `verification`，选择器留空，响应字段名填 `verification`；系统寻找或创建这个名字的隐藏输入框。两项同时填时，以选择器为准。输入框有值，不代表网页内部状态已经更新。
-3. **网站真的提供全局函数，才填回调路径。**只有确认 `window.app.onVerified` 存在，才填 `app.onVerified`。不加括号，不写一段 JS，系统把真实结果作为参数传进去。拿不准就留空，原组件成功回调仍会保留。框架内部函数通常不能这样指定。
+3. **网站真的提供全局函数，才填回调路径。**你要找的是网页中接收验证码结果的函数，而且必须能通过 `window` 访问，不是任意一个 JS 内部函数。
+
+   假设网页已经有下面的函数（只是演示接收参数，不代表设置这个变量就能登录）：
+
+   ```js
+   window.app = {
+     onVerified: function (token) {
+       window.receivedToken = token;
+     }
+   };
+   ```
+
+   后台填 `app.onVerified`。取得真实服务商结果后，相当于调用 `window.app.onVerified(token)`，验证码结果就是传进去的参数。点号的意思是“app 里面的 onVerified”。如果函数直接叫 `window.handleCaptcha`，就填 `handleCaptcha`，不用点。后台不填 `window.` 前缀、不加括号、不写 JS；函数必须实际存在，不要自己编名字。
+
+   **“保留原组件回调”是额外通知，不是替换。**例如网页初始化时写了 `turnstile.render(container, { sitekey: publicKey, callback: pageVerified })`，原回调就是 `pageVerified`。拿到服务商结果后，系统仍先调用 `pageVerified(token)`；如果额外配置了 `app.onVerified`，还会把同一个结果传给它。原回调可能负责更新网页验证状态，不能因为增加自定义接收函数就丢掉它。
+
+   通常留空就能保留原回调。如果你找到的函数本来就是原回调，不必再填，避免重复执行业务逻辑。框架内部函数通常不能用全局路径指定；收到结果也不代表后端登录成功。
 
 #### 常见疑问
 
