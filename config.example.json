@@ -49,6 +49,8 @@
         "response_selector": "",
         "response_field_name": "",
         "callback_path": "",
+        "waiting_message": "",
+        "ready_message": "",
         "result_ttl_seconds": 120
       },
       "intercept": {

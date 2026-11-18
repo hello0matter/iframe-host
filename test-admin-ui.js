@@ -118,7 +118,7 @@ async function main() {
   for (const lang of ['zh', 'en']) {
     const guide = JSON.parse(evaluate(`JSON.stringify(HELP.${lang}.slice(0, 3))`));
     assert.equal(guide.length, 3);
-    assert.deepEqual(guide.map(section => section.items.length), [4, 3, 4]);
+    assert.deepEqual(guide.map(section => section.items.length), [5, 3, 4]);
     const text = guide.map(section => section.items.join(' ')).join(' ');
     for (const example of ['https://hacket.top/666/login', '#captcha-token', 'name="verification"', 'app.onVerified', '&lt;div']) {
       assert.ok(text.includes(example), `${lang} guide must explain ${example}`);
@@ -131,6 +131,17 @@ async function main() {
   }
   evaluate('loadCaptchaForm({})');
   assert.equal(evaluate('collectCaptchaForm().mode'), 'native_first');
+  assert.equal(evaluate('collectCaptchaForm().waiting_message'), '');
+  evaluate("$('siteCaptchaWaitingMessage').value=' 正在验证 ';$('siteCaptchaReadyMessage').value='验证完成 ✅'");
+  assert.equal(evaluate('collectCaptchaForm().waiting_message'), '正在验证');
+  assert.equal(evaluate('collectCaptchaForm().ready_message'), '验证完成 ✅');
+  evaluate("$('siteCaptchaReadyMessage').value='x'.repeat(201)");
+  assert.throws(() => evaluate('collectCaptchaForm()'), /200/);
+  evaluate("loadCaptchaForm({waiting_message:'请稍候',ready_message:'可以登录'})");
+  assert.equal(elements.get('siteCaptchaWaitingMessage').value, '请稍候');
+  assert.equal(elements.get('siteCaptchaReadyMessage').value, '可以登录');
+  evaluate('loadCaptchaForm({})');
+
   assert.equal(evaluate("$('siteCaptchaAdvanced').open"), false);
   assert.match(html, /<details id="siteCaptchaAdvanced"/);
   assert.match(html, /class="captcha-billing"/);

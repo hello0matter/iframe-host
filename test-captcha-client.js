@@ -13,6 +13,7 @@ async function scenario({ native = false, unsupported = false, disconnected = fa
   const customCallbacks = [];
   const inputs = [];
   const notices = [];
+  const noticeMessages = [];
   const errors = [];
   const expirations = [];
   let time = 1000000;
@@ -47,9 +48,9 @@ async function scenario({ native = false, unsupported = false, disconnected = fa
     addEventListener() {},
     querySelector: value => value === '#widget' ? node : null,
     querySelectorAll: value => { if (selectorInvalid) throw new Error('bad selector'); return value === '#custom' ? [selected] : []; },
-    createElement: () => ({ tagName: 'INPUT', value: '', setAttribute() {}, dispatchEvent() {}, remove() { this.removed = true; } }),
+    createElement: () => ({ tagName: 'INPUT', value: '', set textContent(value) { this.text = value; noticeMessages.push(value); }, get textContent() { return this.text; }, setAttribute() {}, dispatchEvent() {}, remove() { this.removed = true; } }),
   };
-  const context = { window, document, navigator: { language: 'en' }, location: { pathname: wrongPage ? '/elsewhere' : '/demo/login' }, atob: value => Buffer.from(value, 'base64').toString(), setTimeout: (fn, delay) => timeouts.push({ fn, at: time + delay }), setInterval: () => 1, clearInterval() {}, Date: class extends Date { static now() { return time; } }, AbortSignal, Event };
+  const context = { window, document, navigator: { language: 'en' }, location: { pathname: wrongPage ? '/elsewhere' : '/demo/login' }, atob: value => Buffer.from(value, 'base64').toString('binary'), setTimeout: (fn, delay) => timeouts.push({ fn, at: time + delay }), setInterval: () => 1, clearInterval() {}, Date: class extends Date { static now() { return time; } }, AbortSignal, Event, TextDecoder };
   vm.runInNewContext(source, context);
   const options = { sitekey: config.sitekey, 'expired-callback': () => expirations.push(true), 'error-callback': value => errors.push(value), ...(noCallback ? {} : { callback: token => { if (callbackThrows) throw new Error('callback failed'); callbacks.push(token); } }), ...(unsupported ? { cData: 'unsupported' } : {}) };
   const id = window.turnstile.render('#widget', options);
@@ -64,7 +65,7 @@ async function scenario({ native = false, unsupported = false, disconnected = fa
     }
   }
   await advance(10000);
-  return { diagnostics, stored, requests, callbacks, customCallbacks, inputs, notices, errors, expirations, selected, id, node, api: window.turnstile, rendered, advance, renderCount, nativeResets: () => nativeResets };
+  return { noticeMessages, diagnostics, stored, requests, callbacks, customCallbacks, inputs, notices, errors, expirations, selected, id, node, api: window.turnstile, rendered, advance, renderCount, nativeResets: () => nativeResets };
 }
 
 async function main() {
@@ -73,6 +74,14 @@ async function main() {
   assert.equal(quiet.stored.size, 0);
   assert.deepEqual(quiet.callbacks, ['mock-result']);
   assert.equal(quiet.requests.length, 1);
+  const customized = await scenario({ config: { messages: { waiting: '正在验证，请稍候…', ready: '验证完成，可以登录啦 ✅' } } });
+  assert.ok(customized.noticeMessages.includes('正在验证，请稍候…'));
+  assert.ok(customized.noticeMessages.includes('验证完成，可以登录啦 ✅'));
+  assert.deepEqual(customized.callbacks, ['mock-result']);
+  const literal = await scenario({ config: { messages: { ready: '<img src=x onerror=alert(1)>' } } });
+  assert.ok(literal.noticeMessages.includes('<img src=x onerror=alert(1)>'));
+  const blank = await scenario({ config: { messages: { ready: '   ', waiting: '' } } });
+  assert.ok(blank.noticeMessages.includes('Verification complete. Please click Sign in.'));
   const ready = await scenario();
   assert.equal(ready.requests.length, 1);
   assert.equal(ready.requests[0].url, '/__ih/captcha/test');

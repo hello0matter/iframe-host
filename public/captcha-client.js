@@ -3,7 +3,7 @@
   var script = document.currentScript;
   if (!script || !script.dataset.captcha || window.__ihCaptchaInstalled) return;
   var config;
-  try { config = JSON.parse(atob(script.dataset.captcha.replace(/-/g, '+').replace(/_/g, '/'))); } catch (_) { return; }
+  try { config = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(script.dataset.captcha.replace(/-/g, '+').replace(/_/g, '/')), function (ch) { return ch.charCodeAt(0); }))); } catch (_) { return; }
   window.__ihCaptchaInstalled = true;
   var fetchRequest = window.fetch.bind(window);
   var diagnosticEvents = [];
@@ -33,7 +33,8 @@
   function message(node, code) {
     var zh = { waiting: '正在等待验证码服务，可能产生费用…', ready: '验证成功，请点击登录。', expired: '验证码结果已失效，请刷新后重新验证；不会自动重试扣费。', reset: '验证码已重置；本页不会再次自动付费，请刷新后重新验证。', CAPTCHA_ADAPTER_INVALID: '验证码适配参数无效：请检查字段选择器和全局回调。', CAPTCHA_KEY_MISSING: '服务器尚未配置验证码服务密钥。', CAPTCHA_HOURLY_LIMIT: '本站本小时验证码调用已达上限。', CAPTCHA_BUSY: '验证码服务忙，请稍后重新打开页面。', CAPTCHA_TIMEOUT: '验证码服务超时；不会自动重试扣费。', CAPTCHA_TICKET_INVALID: '验证码会话已过期，请刷新页面。' };
     var en = { waiting: 'Waiting for verification service; charges may apply…', ready: 'Verification complete. Please click Sign in.', expired: 'Verification result expired. Reload to verify again; no automatic paid retry.', reset: 'Verification reset. No further automatic paid task on this page; reload to verify again.', CAPTCHA_ADAPTER_INVALID: 'Invalid verification adapter: check the field selector and global callback.', CAPTCHA_KEY_MISSING: 'Verification service key is not configured.', CAPTCHA_HOURLY_LIMIT: 'Hourly verification task limit reached.', CAPTCHA_BUSY: 'Verification service is busy. Reopen this page later.', CAPTCHA_TIMEOUT: 'Verification timed out. No automatic paid retry.', CAPTCHA_TICKET_INVALID: 'Verification session expired. Refresh this page.' };
-    node.textContent = (isChinese ? zh : en)[code] || (isChinese ? '验证码服务失败，请刷新后手动验证，或联系管理员。' : 'Verification service failed. Reload for manual verification or contact the administrator.');
+    var custom = (code === 'waiting' || code === 'ready') && config.messages && config.messages[code];
+    node.textContent = (typeof custom === 'string' && custom.trim() ? custom : '') || (isChinese ? zh : en)[code] || (isChinese ? '验证码服务失败，请刷新后手动验证，或联系管理员。' : 'Verification service failed. Reload for manual verification or contact the administrator.');
   }
   function callback(value) {
     if (typeof value === 'function') return { fn: value, owner: window };
