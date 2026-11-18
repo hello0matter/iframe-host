@@ -9,6 +9,7 @@ const path = require("path");
 const zlib = require("zlib");
 const net = require("net");
 const vm = require("vm");
+const { normalizeCaptcha, createCaptchaService, injectCaptcha, CaptchaError } = require('./captcha-service');
 const { spawnSync } = require("child_process");
 
 const ROOT = __dirname;
@@ -847,6 +848,7 @@ function normalizeSite(raw, index = 0) {
     auditProbe: parseAuditProbe(source.audit_probe),
     intercept: parseInterceptConfig(source.intercept),
     responseRules: parseResponseRules(source.response_rules),
+    captcha: normalizeCaptcha(source.captcha),
   };
 }
 
@@ -901,6 +903,7 @@ function serializeSite(site) {
     audit_probe: { enabled: site.auditProbe?.enabled === true },
     intercept: serializeIntercept(site.intercept),
     response_rules: serializeResponseRules(site.responseRules),
+    captcha: site.captcha,
   };
 }
 
@@ -1281,6 +1284,10 @@ function rewriteJson(json, origin, prefix, rules) {
 }
 
 function rewriteLocation(loc, origin, prefix) {
+  if (loc.startsWith('/') && !loc.startsWith('//')) {
+    if (!prefix || loc === prefix || loc.startsWith(prefix + '/') || loc.startsWith(prefix + '?') || loc.startsWith(prefix + '#')) return loc;
+    return prefix + loc;
+  }
   if (/^(?:https?:)?\/\//i.test(loc)) {
     try {
       const target = new URL(origin);
@@ -1554,7 +1561,7 @@ function serveFallback(site, req, res, parsed) {
 
 // ── Proxy handler ─────────────────────────────────────────────────────────────
 
-function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath) {
+function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath, captchaService) {
   const config = site;
   let parsed;
   try { parsed = new URL(upstreamPath, "http://proxy.local"); }
@@ -1658,7 +1665,7 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
       catch (e) { console.error(`[response] site=${config.id} body rule error: ${e.message}`); return text; }
     };
     const cacheFallback = body => {
-      if (responseBodyRules.length) return;
+      if (responseBodyRules.length || config.captcha.enabled) return;
       fallbackCache.put(config.id, parsed.pathname + parsed.search, responseContentType, body);
     };
     const finishAudit = (body, representation) => {
@@ -1674,7 +1681,8 @@ function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adminPath
     const { targetOrigin: origin, proxyPrefix: prefix, replaceRules: rules } = config;
     if (responseContentType.toLowerCase().includes("text/html")) {
       outHeaders["cache-control"] = "no-store";
-      return bufferAndRewrite(proxyRes, res, outHeaders, text => applyBodyRules(rewriteHtml(text, origin, prefix, rules, adminPath, config.id)), (body, representation) => {
+      const captchaTicket = captchaService.issue(config, req, outHeaders);
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => injectCaptcha(applyBodyRules(rewriteHtml(text, origin, prefix, rules, adminPath, config.id)), config, captchaTicket), (body, representation) => {
         cacheFallback(body);
         finishAudit(body, representation);
       });
@@ -1751,6 +1759,26 @@ function main() {
   const app = express();
   const json = express.json({ limit: "128kb" });
   app.disable("x-powered-by");
+  const captchaService = createCaptchaService({ stateFile: process.env.CAPTCHA_STATE_FILE || path.join(path.dirname(CONFIG_FILE), 'captcha-budget.json') });
+
+  app.get('/__ih/captcha/client.js', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.join(ROOT, 'public', 'captcha-client.js'));
+  });
+  app.post('/__ih/captcha/:siteId', express.json({ limit: '8kb', strict: true }), (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    try {
+      let origin;
+      try { origin = new URL(req.get('origin')); } catch { return res.status(403).json({ error: 'CAPTCHA_ORIGIN_INVALID' }); }
+      if (!/^https?:$/.test(origin.protocol) || origin.host !== req.get('host') || req.get('sec-fetch-site') === 'cross-site') return res.status(403).json({ error: 'CAPTCHA_ORIGIN_INVALID' });
+      const site = config.sites.find(candidate => candidate.id === req.params.siteId);
+      const result = captchaService.request(site, req, req.body);
+      res.status(result.status === 'processing' ? 202 : 200).json(result);
+    } catch (error) {
+      res.status(error instanceof CaptchaError ? error.status : 500).json({ error: error instanceof CaptchaError ? error.code : 'CAPTCHA_INTERNAL_ERROR' });
+    }
+  });
 
   app.get([adminBase, `${adminBase}/`], (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -1889,6 +1917,11 @@ function main() {
     if (site) res.json({ ok: true, site: toPublicSite(site) });
   });
 
+  app.get(`${adminBase}/api/sites/:siteId/captcha-status`, ensureAuth, (req, res) => {
+    const site = siteFromRequest(config, req, res);
+    if (site) res.json({ ok: true, data: captchaService.status(site) });
+  });
+
   app.put(`${adminBase}/api/sites/:siteId`, ensureAuth, json, (req, res) => {
     try {
       const id = parseSiteId(req.params.siteId);
@@ -2014,7 +2047,7 @@ function main() {
     const upstreamPath = site.proxyPrefix && (parsed.pathname === site.proxyPrefix || parsed.pathname.startsWith(site.proxyPrefix + "/"))
       ? (parsed.pathname.slice(site.proxyPrefix.length) || "/") + parsed.search
       : parsed.pathname + parsed.search;
-    return proxyRequest(site, req, res, upstreamPath, config.auditMaxBodyBytes, config.adminPath);
+    return proxyRequest(site, req, res, upstreamPath, config.auditMaxBodyBytes, config.adminPath, captchaService);
   });
 
   const server = app.listen(config.port, config.bindHost, () => {

@@ -107,6 +107,8 @@ async function main() {
   fs.mkdirSync(tlsDir, { recursive: true });
   execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", tlsKeyPath, "-out", tlsCertPath, "-subj", "/CN=127.0.0.1", "-days", "1"], { stdio: "ignore" });
   fs.copyFileSync(SERVER_SOURCE, path.join(tmp, "server.js"));
+  fs.copyFileSync(path.join(ROOT, 'captcha-service.js'), path.join(tmp, 'captcha-service.js'));
+  fs.copyFileSync(path.join(ROOT, 'public', 'captcha-client.js'), path.join(adminPath, 'captcha-client.js'));
   fs.copyFileSync(ADMIN_SOURCE, path.join(adminPath, "admin.html"));
   fs.cpSync(dependencies, path.join(tmp, "node_modules"), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify({
@@ -156,6 +158,15 @@ async function main() {
     if (request.url === "/redirect") {
       return { status: 302, headers: { location: `http://127.0.0.1:${upstreamOnePort}/next` }, body: "redirect" };
     }
+    if (request.url === "/login-redirect") {
+      return { status: 302, headers: { location: "/login?redirect=/one/" }, body: "redirect" };
+    }
+    if (request.url === "/prefixed-redirect") {
+      return { status: 302, headers: { location: "/one/login?redirect=/one/" }, body: "redirect" };
+    }
+    if (request.url === "/external-redirect") {
+      return { status: 302, headers: { location: "https://external.example/login" }, body: "redirect" };
+    }
     if (request.url === "/large") {
       return { contentType: "text/plain", body: "x".repeat(1024 * 1024 + 1) };
     }
@@ -198,6 +209,34 @@ async function main() {
   assert.strictEqual(login.response.status, 200, login.text);
   const token = login.json.token;
   assert.ok(token);
+
+  const publicBase = `http://127.0.0.1:${proxyPort}`;
+  const captchaClient = await request(publicBase + '/__ih/captcha/client.js');
+  assert.strictEqual(captchaClient.response.status, 200);
+  assert.strictEqual(captchaClient.response.headers.get('cache-control'), 'no-store');
+  assert.ok(captchaClient.text.includes('__ihCaptchaInstalled'));
+  const privateCaptchaStatus = await request(apiUrl('/api/sites/default/captcha-status'));
+  assert.strictEqual(privateCaptchaStatus.response.status, 401);
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ captcha: { enabled: true, site_key: 'public-integration-key', api_key_env: 'CAPTCHA_TEST_ABSENT_ENV' } }) });
+  const captchaStatus = await api('/api/sites/default/captcha-status', token);
+  assert.strictEqual(captchaStatus.data.key_configured, false);
+  const captchaPage = await request(publicBase + '/one/page.html');
+  assert.strictEqual(captchaPage.response.headers.get('cache-control'), 'no-store');
+  const captchaCookie = captchaPage.response.headers.get('set-cookie').match(/ih_captcha_browser=[a-f0-9]+/)[0];
+  const captchaConfig = JSON.parse(Buffer.from(captchaPage.text.match(/data-captcha="([A-Za-z0-9_-]+)"/)[1], 'base64url').toString());
+  assert.strictEqual(captchaConfig.page, '/one/login');
+  const captchaBody = JSON.stringify({ ticket: captchaConfig.ticket, metadata: { sitekey: 'public-integration-key' } });
+  const postCaptcha = headers => request(publicBase + '/__ih/captcha/default', { method: 'POST', headers: { 'content-type': 'application/json', cookie: captchaCookie, ...headers }, body: captchaBody });
+  assert.strictEqual((await postCaptcha({})).response.status, 403);
+  assert.strictEqual((await postCaptcha({ origin: 'https://foreign.example' })).response.status, 403);
+  assert.strictEqual((await postCaptcha({ origin: publicBase, 'sec-fetch-site': 'cross-site' })).response.status, 403);
+  assert.strictEqual((await postCaptcha({ origin: publicBase, cookie: '' })).response.status, 403);
+  const missingCaptchaKey = await postCaptcha({ origin: publicBase });
+  assert.strictEqual(missingCaptchaKey.response.status, 503);
+  assert.strictEqual(missingCaptchaKey.json.error, 'CAPTCHA_KEY_MISSING');
+  assert.strictEqual((await api('/api/sites/default/captcha-status', token)).data.tasks_this_hour, 0);
+  await api('/api/sites/default', token, { method: 'PUT', body: JSON.stringify({ captcha: { enabled: false } }) });
+  assert.strictEqual((await postCaptcha({ origin: publicBase })).response.status, 404);
 
   const added = await api("/api/sites", token, { method: "POST", body: JSON.stringify({
     id: "two", name: "Second site", enabled: true, target_url: `https://127.0.0.1:${upstreamTwoPort}/`, proxy_prefix: "/two",
@@ -267,6 +306,12 @@ async function main() {
   const routeTwo = await request(`http://127.0.0.1:${proxyPort}/two/hello?x=1`);
   assert.strictEqual(routeOne.text, "one:/hello?x=1");
   assert.strictEqual(routeTwo.text, "two:/hello?x=1");
+  const loginRedirect = await request(`http://127.0.0.1:${proxyPort}/one/login-redirect`);
+  assert.strictEqual(loginRedirect.response.headers.get('location'), '/one/login?redirect=/one/');
+  const prefixedRedirect = await request(`http://127.0.0.1:${proxyPort}/one/prefixed-redirect`);
+  assert.strictEqual(prefixedRedirect.response.headers.get('location'), '/one/login?redirect=/one/');
+  const externalRedirect = await request(`http://127.0.0.1:${proxyPort}/one/external-redirect`);
+  assert.strictEqual(externalRedirect.response.headers.get('location'), 'https://external.example/login');
 
   const responseRules = [
     { enabled: true, url_pattern: "/json-mutate", match_mode: "literal", target: "json", key: "data.token", code: 'return value + "-x";', timeout_ms: 1000 },

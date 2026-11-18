@@ -35,6 +35,15 @@
       "audit_probe": {
         "enabled": false
       },
+      "captcha": {
+        "enabled": false,
+        "provider": "2captcha",
+        "api_key_env": "CAPTCHA_2CAPTCHA_API_KEY",
+        "site_key": "",
+        "page_path": "/login",
+        "timeout_seconds": 120,
+        "max_tasks_per_hour": 3
+      },
       "intercept": {
         "enabled": false,
         "url_pattern": "^/api/login",

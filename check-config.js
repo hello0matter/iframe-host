@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { normalizeCaptcha } = require('./captcha-service');
 
 function parseAdminPath(v) {
   const s = String(v || "").trim();
@@ -49,6 +50,7 @@ function parseSite(site, index) {
     prefix: parseProxyPrefix(site.proxy_prefix),
     targetUrl: parseTargetUrl(site.target_url, `sites[${index}].target_url`),
     enabled: site.enabled !== false,
+    captcha: normalizeCaptcha(site.captcha),
   };
 }
 

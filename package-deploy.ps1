@@ -19,6 +19,10 @@ $items = @(
     "package-lock.json",
     "README.md",
     "server.js",
+    "captcha-service.js",
+    "test-admin-ui.js",
+    "test-captcha-service.js",
+    "test-captcha-client.js",
     "public",
     "deploy"
 )

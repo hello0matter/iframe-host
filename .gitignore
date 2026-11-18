@@ -7,6 +7,8 @@ ops/.env
 config.json
 config.local.json
 config.production.json
+captcha-budget.json
+captcha-budget.json.new
 npm-debug.log*
 __pycache__/
 *.pyc
