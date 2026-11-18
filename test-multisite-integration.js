@@ -443,6 +443,15 @@ async function main() {
   const getRequest = await request(`http://127.0.0.1:${proxyPort}/one/request-mutate?remove=1&keep=2`);
   assert.strictEqual(getRequest.json.url, "/one/request-mutate?keep=2&lang=zh-CN");
   assert.strictEqual(getRequest.json.body, "");
+  for (const headers of [{}, { "content-length": "0" }, { "content-length": "0", "content-type": "application/octet-stream" }]) {
+    const emptyRequest = await request(`http://127.0.0.1:${proxyPort}/one/request-mutate/orders/123/cancel?remove=1&keep=2`, {
+      method: "POST", headers: { ...headers, "x-custom": "original" },
+    });
+    assert.strictEqual(emptyRequest.response.status, 200, emptyRequest.text);
+    assert.strictEqual(emptyRequest.json.body, "");
+    assert.strictEqual(emptyRequest.json.headers["x-custom"], "original-sent");
+    assert.strictEqual(lastUpstreamOneUrl, "/request-mutate/orders/123/cancel?keep=2&lang=zh-CN");
+  }
   const untouchedResponse = await request(`http://127.0.0.1:${proxyPort}/one/json-mutate`);
   assert.deepStrictEqual(untouchedResponse.json, { data: { token: "abc-x", n: 11 }, keep: true });
   const tooLarge = await sendRequestRule("x".repeat(1024 * 1024 + 1), "text/plain");

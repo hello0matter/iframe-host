@@ -1667,7 +1667,8 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
   let originalRequestBody = null;
   const requestContext = requestRules.length ? { request: buildScriptRequest(req, parsed, upstreamUrl), response: null } : null;
   const bodyRules = requestRules.filter(rule => ["json", "form", "text"].includes(rule.target));
-  if (bodyRules.length && !["GET", "HEAD"].includes(req.method)) {
+  const hasRequestBody = req.headers["transfer-encoding"] !== undefined || Number(req.headers["content-length"] || 0) > 0;
+  if (bodyRules.length && hasRequestBody && !["GET", "HEAD"].includes(req.method)) {
     const encoding = String(req.headers["content-encoding"] || "identity").toLowerCase();
     const contentType = String(req.headers["content-type"] || "");
     if (encoding !== "identity" || !isTextContentType(contentType)) return res.status(415).end("Request rules require an uncompressed text body");

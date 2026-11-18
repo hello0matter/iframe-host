@@ -77,6 +77,8 @@
 - 示例三：请求 → JSON 正文键，键填 `options.language`，脚本填 `return "zh-CN";`。JSON 保留返回值类型。
 - 示例四：响应 → JSON 正文键，键填 `data.balance`，脚本填 `return Number((Number(value) * 1.5).toFixed(2));`。这只修改代理显示，不改变上游余额或扣费。
 - 请求阶段 `response === null`；`request` 提供当前转发 URL、查询串、请求头和 Cookie；缓冲正文时也提供当前 `request.body`。修改必须通过 `return` 返回值，仅修改上下文对象不会改变真实请求。脚本没有 `fetch`、DOM 或 `window`，不支持异步动作。
+- 无正文请求（没有 Transfer-Encoding，且 Content-Length 缺省或为 0）跳过正文规则，不要求 Content-Type，也不会凭空生成 JSON；请求头和查询参数规则仍然执行。例如取消订单的空 POST 不应被正文规则拦成 415。
+- 普通文本 URL 匹配是“包含”，`/api/v1/payment/orders` 也会命中 `/api/v1/payment/orders/123/cancel`。只修改创建订单接口时，请选择正则并填写 `^/api/v1/payment/orders/?(?:\?.*)?$`，不要带 `/666` 前缀；取消等子路径不匹配。浏览器 Network / 本机 Burp 看到的是改写前的浏览器请求，不代表上游收到的值。
 - 请求正文只处理非 GET/HEAD 的未压缩文本，原文及改写后正文上限均为 1 MiB，读取超时 15 秒。命中正文规则的 multipart、二进制或压缩请求返回 415，超限返回 413，读取超时返回 408；不命中正文规则的上传仍正常流式转发。
 - 请求的 Host、Content-Length、Accept-Encoding、Content-Encoding、Expect 及逐跳头不允许通过规则修改，正文改写后自动重算字节长度。请求头 / 查询规则不需要缓冲正文。
 - URL 拦截优先于键值规则：命中拦截时不访问上游，也不执行键值规则。规则只影响所属站点，不改变原站配置。

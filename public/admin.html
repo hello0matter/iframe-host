@@ -360,7 +360,7 @@ en: [
     'JSON keys accept dot and index paths such as <code>data.token</code> or <code>items[0].price</code>. Header keys use the header name. Form keys use the field name. Text uses a regular expression; the first capture group is replaced when present.',
     'The script receives <code>value</code>, <code>key</code>, <code>request</code>, <code>response</code>, <code>site</code> and <code>console.log</code>. Return the replacement value; return undefined to keep the original, null to delete a header/form field, or null to store JSON null. For text, null replaces the match with an empty string.',
     'Request example: choose URL query parameter, key <code>lang</code>, script <code>return &quot;zh-CN&quot;;</code>. For JSON, use the full path such as <code>data.balance</code>. Request scripts have <code>response === null</code>. Return a value to change the request; editing context objects alone does not change it.',
-    'Request body rules support uncompressed text bodies up to 1 MiB, with a 15-second read limit. GET/HEAD bodies, multipart and compressed uploads are not rewritten. Host, framing and encoding headers are protected. Scripts are synchronous; no fetch, DOM or window. Matching uses the upstream URL without the proxy prefix.'
+    'Request body rules support uncompressed text bodies up to 1 MiB, with a 15-second read limit. Requests without a body skip body rules and do not require Content-Type. GET/HEAD bodies, multipart and compressed uploads are not rewritten. Host, framing and encoding headers are protected. Scripts are synchronous; no fetch, DOM or window. Matching uses the upstream URL without the proxy prefix.'
   ]},
   { h: 'URL intercept script', items: [
     'Each site can intercept requests by URL pattern. When the pattern matches, the proxy does not contact the upstream at all; it runs your JavaScript and returns that result.',
@@ -440,7 +440,7 @@ zh: [
     'JSON 键支持点号和下标路径，例如 <code>data.token</code> 或 <code>items[0].price</code>；响应头填头名称；表单填字段名；文本填正则，有第一个捕获组时替换捕获组，否则替换整个匹配。',
     '脚本可使用 <code>value</code>、<code>key</code>、<code>request</code>、<code>response</code>、<code>site</code> 和 <code>console.log</code>。返回替换值；返回 undefined 保持原值，返回 null 删除响应头或表单字段；JSON 会写入 null，文本会替换为空字符串。',
     '请求示例：取值位置选 URL 查询参数，键填 <code>lang</code>，脚本填 <code>return &quot;zh-CN&quot;;</code>。JSON 要填完整路径，例如 <code>data.balance</code>。请求阶段 <code>response === null</code>；必须 return 替换值，只修改上下文对象不会修改请求。',
-    '请求正文仅支持未压缩文本，最大 1 MiB，读取限时 15 秒；不修改 GET/HEAD 正文，不支持 multipart 或压缩上传。Host、报文长度及编码等头受保护。脚本同步执行，没有 fetch、DOM 或 window。URL 匹配上游路径，不加代理前缀。'
+    '请求正文仅支持未压缩文本，最大 1 MiB，读取限时 15 秒；无正文请求跳过正文规则，不要求 Content-Type；不修改 GET/HEAD 正文，不支持 multipart 或压缩上传。Host、报文长度及编码等头受保护。脚本同步执行，没有 fetch、DOM 或 window。URL 匹配上游路径，不加代理前缀。'
   ]},
   { h: 'URL 拦截脚本', items: [
     '每个站点都可以按 URL 规则拦截请求。命中规则后，代理完全不会访问上游，而是执行你配置的 JavaScript 并返回结果。',
