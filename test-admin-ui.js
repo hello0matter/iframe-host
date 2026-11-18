@@ -96,6 +96,16 @@ async function main() {
   assert.ok(elements.get('helpContent').innerHTML.includes('Global settings and language'));
   assert.ok(evaluate("localizeError('site id: 1-64 chars [A-Za-z0-9_-]')").includes('Site ID'));
   assert.equal(evaluate('HELP.zh.length'), evaluate('HELP.en.length'));
+  for (const lang of ['zh', 'en']) {
+    const guide = JSON.parse(evaluate(`JSON.stringify(HELP.${lang}.slice(0, 3))`));
+    assert.equal(guide.length, 3);
+    assert.deepEqual(guide.map(section => section.items.length), [4, 3, 4]);
+    const text = guide.map(section => section.items.join(' ')).join(' ');
+    for (const example of ['https://hacket.top/666/login', '#captcha-token', 'name="verification"', 'app.onVerified', '&lt;div']) {
+      assert.ok(text.includes(example), `${lang} guide must explain ${example}`);
+    }
+    assert.ok(!/<(?:input|div)\b/i.test(text), 'example markup must be escaped');
+  }
   evaluate('loadCaptchaForm({})');
   assert.equal(evaluate('collectCaptchaForm().mode'), 'native_first');
   evaluate("$('siteCaptchaMode').value='provider_only';$('siteCaptchaSelector').value='#token';$('siteCaptchaCallback').value='app.onVerified';$('siteCaptchaFieldName').value='verification_token'");
