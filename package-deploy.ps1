@@ -25,6 +25,7 @@ $items = @(
     "callback-routes.js",
     "callback-script-worker.js",
     "test-callback-service.js",
+    "test-callback-page.js",
     "test-api-proxy.js",
     "test-admin-ui.js",
     "test-captcha-service.js",

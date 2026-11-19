@@ -14,6 +14,39 @@ function mountCallbackRoutes(app, { service, adminBase, ensureAuth, getSites }) 
     res.sendFile(path.join(__dirname,'public','callback-browser.html'));
   });
   const rate = new Map();
+  app.get('/__ih/callback/page-client.js', (req,res) => {
+    res.setHeader('Cache-Control','no-store');
+    res.setHeader('X-Content-Type-Options','nosniff');
+    res.sendFile(path.join(__dirname,'public','callback-page.js'));
+  });
+  app.post('/__ih/callback/page/:siteId/:action', (req,res,next) => {
+    let origin;
+    try { origin = new URL(req.get('origin')); } catch { return res.status(403).json({error:'CALLBACK_PAGE_ORIGIN_REQUIRED'}); }
+    if (origin.host !== req.get('host') || (req.get('sec-fetch-site') && req.get('sec-fetch-site') !== 'same-origin')) return res.status(403).json({error:'CALLBACK_PAGE_ORIGIN_REQUIRED'});
+    if ((req.get('content-encoding') || 'identity') !== 'identity' || !/^application\/json(?:;|$)/i.test(req.get('content-type') || '')) return res.status(415).json({error:'CALLBACK_JSON_REQUIRED'});
+    if (!['register','poll','ack'].includes(req.params.action)) return res.sendStatus(404);
+    const limit = req.params.action === 'register' ? 60 : 1200;
+    if (!rateAllowed('page-global:'+req.params.action,limit) || !rateAllowed('page-ip:'+req.params.action+':'+req.ip,limit)) return res.status(429).set('Retry-After','60').json({error:'CALLBACK_RATE_LIMIT'});
+    next();
+  }, express.json({limit:'2kb',inflate:false}), async(req,res,next) => {
+    res.setHeader('Cache-Control','no-store');
+    try {
+      const body = req.body || {};
+      const siteId = req.params.siteId;
+      if (req.params.action === 'register') {
+        const pathname = body.path;
+        const owner = typeof pathname === 'string' && getSites().filter(s => s.enabled && (!s.proxyPrefix || pathname === s.proxyPrefix || pathname.startsWith(s.proxyPrefix+'/'))).sort((a,b) => (b.proxyPrefix || '').length - (a.proxyPrefix || '').length)[0];
+        if (owner?.id !== siteId || pathname === adminBase || pathname.startsWith(adminBase+'/')) throw new CallbackError('CALLBACK_PAGE_BINDING_INVALID');
+        return res.json({data:service.registerPage(siteId,body)});
+      }
+      if (req.params.action === 'ack') return res.json(service.acknowledgePage(siteId,body));
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      res.on('close',abort);
+      try { const data = await service.pollPage(siteId,body,controller.signal); if (!res.destroyed) res.json({data}); }
+      finally { res.removeListener('close',abort); }
+    } catch(e) { next(e); }
+  });
   function rateAllowed(bucket,limit) {
     const minute=Math.floor(Date.now()/60000);
     for(const [k,v] of rate) if(v.minute!==minute) rate.delete(k);
@@ -56,4 +89,9 @@ function mountCallbackRoutes(app, { service, adminBase, ensureAuth, getSites }) 
     res.status(status).json({ error: error instanceof CallbackError ? error.message : status === 413 ? 'CALLBACK_DATA_TOO_LARGE' : 'CALLBACK_REQUEST_FAILED', message: error instanceof CallbackError ? error.message : 'CALLBACK_REQUEST_FAILED' });
   });
 }
-module.exports = { mountCallbackRoutes };
+function injectCallbackPage(html,site) {
+  if (!site.externalCallback?.page_enabled) return html;
+  const tag = '<script defer src="/__ih/callback/page-client.js" data-ih-callback-site="'+encodeURIComponent(site.id)+'"></script>';
+  return /<\/head>/i.test(html) ? html.replace(/<\/head>/i,tag+'</head>') : tag+html;
+}
+module.exports = { mountCallbackRoutes, injectCallbackPage };

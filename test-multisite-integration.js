@@ -113,7 +113,7 @@ async function main() {
   fs.copyFileSync(SERVER_SOURCE, path.join(tmp, "server.js"));
   fs.copyFileSync(path.join(ROOT, 'api-proxy.js'), path.join(tmp, 'api-proxy.js'));
   for (const file of ['callback-service.js','callback-routes.js','callback-script-worker.js']) fs.copyFileSync(path.join(ROOT,file),path.join(tmp,file));
-  for (const file of ['callback-admin.js','callback-browser.html']) fs.copyFileSync(path.join(ROOT,'public',file),path.join(adminPath,file));
+  for (const file of ['callback-admin.js','callback-browser.html','callback-page.js']) fs.copyFileSync(path.join(ROOT,'public',file),path.join(adminPath,file));
   fs.copyFileSync(path.join(ROOT, 'captcha-service.js'), path.join(tmp, 'captcha-service.js'));
   fs.copyFileSync(path.join(ROOT, 'public', 'captcha-client.js'), path.join(adminPath, 'captcha-client.js'));
   fs.copyFileSync(ADMIN_SOURCE, path.join(adminPath, "admin.html"));

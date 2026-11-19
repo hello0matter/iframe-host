@@ -12,7 +12,7 @@ const vm = require("vm");
 const { normalizeCaptcha, createCaptchaService, injectCaptcha, CaptchaError } = require('./captcha-service');
 const { normalizeApiProxy, matchesApiProxy } = require('./api-proxy');
 const { normalizeCallback, createCallbackService } = require('./callback-service');
-const { mountCallbackRoutes } = require('./callback-routes');
+const { mountCallbackRoutes, injectCallbackPage } = require('./callback-routes');
 const { spawnSync } = require("child_process");
 
 const ROOT = __dirname;
@@ -1823,7 +1823,7 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
     if (responseContentType.toLowerCase().includes("text/html")) {
       outHeaders["cache-control"] = "no-store";
       const captchaTicket = captchaService.issue(config, req, outHeaders);
-      return bufferAndRewrite(proxyRes, res, outHeaders, text => injectCaptcha(applyBodyRules(rewriteHtml(text, origin, prefix, rules, adminPath, config.id)), config, captchaTicket), (body, representation) => {
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => injectCallbackPage(injectCaptcha(applyBodyRules(rewriteHtml(text, origin, prefix, rules, adminPath, config.id)), config, captchaTicket),config), (body, representation) => {
         cacheFallback(body);
         finishAudit(body, representation);
       });

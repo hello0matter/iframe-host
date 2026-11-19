@@ -130,7 +130,9 @@ async function main() {
     assert.ok(!text.includes('console.log'), 'examples must not encourage logging verification tokens');
   }
   evaluate('loadCallbackForm({})');
-  assert.deepEqual(JSON.parse(evaluate('JSON.stringify(collectCallbackForm())')), { enabled:false, template_id:'', signing_key_env:'IH_CALLBACK_SIGNING_KEY', auto_run:false });
+  assert.deepEqual(JSON.parse(evaluate('JSON.stringify(collectCallbackForm())')), { enabled:false, template_id:'', signing_key_env:'IH_CALLBACK_SIGNING_KEY', auto_run:false, page_enabled:false });
+  evaluate("$('siteCallbackPage').value='true'");
+  assert.equal(evaluate('collectCallbackForm().page_enabled'),true);
   evaluate("$('siteCallbackEnabled').value='true'");
   assert.throws(()=>evaluate('collectCallbackForm()'), /template|模板/);
   evaluate("$('siteCallbackTemplate').value='cb-0123456789abcdef01234567';$('siteCallbackAuto').value='true'");

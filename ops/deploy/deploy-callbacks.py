@@ -14,7 +14,7 @@ FILES = [
     'server.js', 'api-proxy.js', 'captcha-service.js', 'callback-service.js',
     'callback-routes.js', 'callback-script-worker.js', 'check-config.js',
     'package.json', 'package-lock.json', 'public/admin.html', 'public/captcha-client.js',
-    'public/callback-admin.js', 'public/callback-browser.html',
+    'public/callback-admin.js', 'public/callback-browser.html', 'public/callback-page.js',
     'docs/IFRAME_HOST_OPERATIONS.md', 'docs/EXTERNAL_CALLBACKS.md',
     'docs/PAYMENT_CALLBACK_WORKFLOW_DESIGN.md',
 ]
@@ -54,7 +54,7 @@ def idle():
             if call(base+'/api/sites/'+s['id']+'/captcha-status',token=token)['data']['active']:return False
     try:
         activity=call(base+'/api/callbacks/',token=token)['data']
-        if activity.get('running') or activity.get('active_browser_count',0):return False
+        if activity.get('running') or activity.get('active_browser_count',0) or activity.get('active_page_count',0):return False
     except urllib.error.HTTPError as e:
         if e.code!=404:raise
     state=config.parent/'callback-state.json'
@@ -103,6 +103,7 @@ try:
     fetch(public+'/'+c.get('admin_path','admin').strip('/')+'/?deploy='+stage.name,files['public/admin.html'])
     fetch(public+'/__ih/callback/admin.js?deploy='+stage.name,files['public/callback-admin.js'])
     fetch(public+'/__ih/callback/browser-frame?deploy='+stage.name,files['public/callback-browser.html'])
+    fetch(public+'/__ih/callback/page-client.js?deploy='+stage.name,files['public/callback-page.js'])
     token=login()
     data=call(base+'/api/callbacks/',token=token)['data']
     if not data['storage_healthy']:raise RuntimeError('Callback storage is unhealthy')

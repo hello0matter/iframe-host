@@ -11,12 +11,12 @@ const clone = value => JSON.parse(JSON.stringify(value));
 function normalizeCallback(raw) {
   if (raw !== undefined && (!raw || typeof raw !== 'object' || Array.isArray(raw))) fail('CALLBACK_CONFIG_INVALID');
   const v = raw || {};
-  for (const key of ['enabled', 'auto_run']) if (v[key] !== undefined && typeof v[key] !== 'boolean') fail('CALLBACK_CONFIG_INVALID');
+  for (const key of ['enabled', 'auto_run', 'page_enabled']) if (v[key] !== undefined && typeof v[key] !== 'boolean') fail('CALLBACK_CONFIG_INVALID');
   const template_id = v.template_id || '';
   const signing_key_env = v.signing_key_env || 'IH_CALLBACK_SIGNING_KEY';
   if (typeof template_id !== 'string' || (template_id && !/^cb-[a-f0-9]{24}$/.test(template_id)) || typeof signing_key_env !== 'string' || !/^IH_CALLBACK_[A-Z0-9_]{1,80}$/.test(signing_key_env)) fail('CALLBACK_CONFIG_INVALID');
   if (v.enabled && !template_id) fail('CALLBACK_TEMPLATE_REQUIRED');
-  return { enabled: v.enabled === true, template_id, signing_key_env, auto_run: v.auto_run === true };
+  return { enabled: v.enabled === true, template_id, signing_key_env, auto_run: v.auto_run === true, page_enabled: v.page_enabled === true };
 }
 function boundedJson(value, limit = 16384) {
   let text;
@@ -35,10 +35,10 @@ function normalizeDraft(raw) {
   if (typeof v.name !== 'string' || !v.name.trim() || v.name.length > 100 || typeof (v.description || '') !== 'string' || (v.description || '').length > 1000) fail('CALLBACK_TEMPLATE_INVALID');
   if (!Array.isArray(v.steps) || !v.steps.length || v.steps.length > 12) fail('CALLBACK_STEPS_INVALID');
   const steps = v.steps.map((s,i) => {
-    if (!s || !['server_node','browser_js'].includes(s.type) || typeof s.code !== 'string' || !s.code.trim() || Buffer.byteLength(s.code) > 8192 || (s.enabled !== undefined && typeof s.enabled !== 'boolean')) fail('CALLBACK_STEPS_INVALID');
+    if (!s || !['server_node','browser_js','page_refresh'].includes(s.type) || (s.type !== 'page_refresh' && (typeof s.code !== 'string' || !s.code.trim() || Buffer.byteLength(s.code) > 8192)) || (s.enabled !== undefined && typeof s.enabled !== 'boolean')) fail('CALLBACK_STEPS_INVALID');
     const timeout_ms = s.timeout_ms === undefined ? 1000 : s.timeout_ms;
     if (!Number.isInteger(timeout_ms) || timeout_ms < 100 || timeout_ms > 3000) fail('CALLBACK_STEPS_INVALID');
-    return { name: String(s.name || 'Step ' + (i + 1)).slice(0,100), type: s.type, enabled: s.enabled !== false, timeout_ms, code: s.code };
+    return { name: String(s.name || 'Step ' + (i + 1)).slice(0,100), type: s.type, enabled: s.enabled !== false, timeout_ms, code: s.type === 'page_refresh' ? '' : s.code };
   });
   const ack_body = v.ack_body === undefined ? 'success' : v.ack_body;
   if (typeof ack_body !== 'string' || Buffer.byteLength(ack_body) > 1024) fail('CALLBACK_ACK_INVALID');
@@ -63,6 +63,9 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
   let state = { version: 1, templates: [], jobs: [] };
   let healthy = true;
   let running = false;
+  const pages = new Map();
+  const pageWaiters = new Set();
+  const pageTtl = 30 * 60 * 1000;
   try {
     if(fs.statSync(stateFile).size > 16 * 1024 * 1024) throw new Error();
     const data = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
@@ -73,7 +76,7 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
       if(t.published) normalizeDraft(t.published);
     }
     for (const j of data.jobs) {
-      if (!j || typeof j.id !== 'string' || typeof j.site_id !== 'string' || !Array.isArray(j.steps) || !Array.isArray(j.results) || !Number.isInteger(j.step) || j.step < 0 || j.step > j.steps.length || !['pending','running','waiting_browser','completed','failed','needs_review','manual_review'].includes(j.status)) throw new Error();
+      if (!j || typeof j.id !== 'string' || typeof j.site_id !== 'string' || !Array.isArray(j.steps) || !Array.isArray(j.results) || !Number.isInteger(j.step) || j.step < 0 || j.step > j.steps.length || !['pending','running','waiting_browser','waiting_page','completed','failed','needs_review','manual_review'].includes(j.status)) throw new Error();
     }
     state = data;
   } catch (e) { if (e.code !== 'ENOENT') healthy = false; }
@@ -96,19 +99,21 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
       }
     } catch { healthy = false; fail('CALLBACK_STORAGE_UNAVAILABLE',503); }
     state = next;
+    for (const notify of pageWaiters) setImmediate(notify);
     return clone(result === undefined ? null : result);
   }
-  if (healthy && state.jobs.some(j => j.status === 'running' || j.lease)) commit(next => {
+  if (healthy && state.jobs.some(j => j.status === 'running' || j.status === 'waiting_page' || j.lease)) commit(next => {
     for (const j of next.jobs) {
-      if (j.status === 'running' || j.lease) { j.status = 'needs_review'; j.error = 'CALLBACK_INTERRUPTED'; delete j.lease; }
+      if (j.status === 'running' || j.status === 'waiting_page' || j.lease) { j.status = 'needs_review'; j.error = 'CALLBACK_INTERRUPTED'; delete j.lease; }
     }
   });
   const findTemplate = (id, data = state) => data.templates.find(t => t.id === id) || fail('CALLBACK_TEMPLATE_NOT_FOUND',404);
   const findJob = (id, data = state) => data.jobs.find(j => j.id === id) || fail('CALLBACK_JOB_NOT_FOUND',404);
   const safeJob = j => { const data = clone(j); delete data.lease; delete data.digest; return data; };
   function list() {
+    expirePageJobs();
     if (!healthy) fail('CALLBACK_STORAGE_UNAVAILABLE',503);
-    return { running, active_browser_count: state.jobs.filter(j => j.lease && j.lease.expires_at >= now()).length, templates: clone(state.templates), jobs: state.jobs.slice(-100).reverse().map(j => ({ id: j.id, site_id: j.site_id, template_id: j.template_id, version: j.version, status: j.status, step: j.step, event_id: j.event_id, created_at: j.created_at, error: j.error || '' })), storage_healthy: healthy };
+    return { running, active_page_count: state.jobs.filter(j => j.status === 'waiting_page').length, active_browser_count: state.jobs.filter(j => j.lease && j.lease.expires_at >= now()).length, templates: clone(state.templates), jobs: state.jobs.slice(-100).reverse().map(j => ({ id: j.id, site_id: j.site_id, template_id: j.template_id, version: j.version, status: j.status, step: j.step, event_id: j.event_id, created_at: j.created_at, error: j.error || '' })), storage_healthy: healthy };
   }
   function save(id, raw) {
     const draft = normalizeDraft(raw);
@@ -196,6 +201,20 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
         const step = j.steps[j.step];
         if (!step.enabled) { patchJob(id,v => { v.step++; }); continue; }
         if (step.type === 'browser_js') { patchJob(id,v => { v.status = 'waiting_browser'; }); return safeJob(findJob(id)); }
+        if (step.type === 'page_refresh') {
+          const site = getSite(j.site_id);
+          if (!site.externalCallback?.page_enabled) {
+            patchJob(id,v => { v.status = 'failed'; v.error = 'CALLBACK_PAGE_DISABLED'; });
+            return safeJob(findJob(id));
+          }
+          const page = pages.get(j.event?.page_ref);
+          if (!page || page.site_id !== j.site_id || page.order_ref !== j.event?.order_ref || page.expires_at <= now()) {
+            patchJob(id,v => { v.status = 'failed'; v.error = 'CALLBACK_PAGE_BINDING_INVALID'; });
+            return safeJob(findJob(id));
+          }
+          patchJob(id,v => { v.status = 'waiting_page'; v.page_deadline = page.expires_at; });
+          return safeJob(findJob(id));
+        }
         patchJob(id,v => { v.status = 'running'; });
         try {
           const output = redact(boundedJson(await runner(step,context(j))));
@@ -252,9 +271,85 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
     const t = state.templates.find(t => t.id === binding.template_id);
     return { ...binding, key_configured: typeof env[binding.signing_key_env] === 'string' && Buffer.byteLength(env[binding.signing_key_env]) >= 32, published_version: t?.published?.version || 0, template_enabled: t?.enabled === true && !t.archived, storage_healthy: healthy };
   }
+  function pageSite(siteId) {
+    const site = getSite(siteId);
+    if (!site?.enabled || !site.externalCallback?.page_enabled) fail('CALLBACK_PAGE_DISABLED',404);
+    return site;
+  }
+  function prunePages() {
+    for (const [id,p] of pages) if (p.expires_at <= now()) pages.delete(id);
+  }
+  function expirePageJobs() {
+    if (healthy && state.jobs.some(j => j.status === 'waiting_page' && j.page_deadline <= now())) commit(next => {
+      for (const j of next.jobs) if (j.status === 'waiting_page' && j.page_deadline <= now()) { j.status = 'failed'; j.error = 'CALLBACK_PAGE_EXPIRED'; }
+    });
+  }
+  function registerPage(siteId, body) {
+    const site = pageSite(siteId);
+    prunePages();
+    if (typeof body.order_ref !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(body.order_ref) || typeof body.path !== 'string') fail('CALLBACK_PAGE_BINDING_INVALID');
+    let url;
+    try { url = new URL(body.path,'https://page.invalid'); } catch { fail('CALLBACK_PAGE_BINDING_INVALID'); }
+    const prefix = site.proxyPrefix || '';
+    if (url.origin !== 'https://page.invalid' || url.pathname !== body.path || (prefix && url.pathname !== prefix && !url.pathname.startsWith(prefix + '/')) || /^\/(?:__ih|admin|internal-content-admin)(?:\/|$)/.test(url.pathname)) fail('CALLBACK_PAGE_BINDING_INVALID');
+    if (pages.size >= 200) fail('CALLBACK_PAGE_LIMIT',503);
+    const page_ref = crypto.randomBytes(24).toString('hex');
+    const secret = crypto.randomBytes(32).toString('hex');
+    const expires_at = now() + pageTtl;
+    pages.set(page_ref,{site_id:siteId,order_ref:body.order_ref,path:body.path,secret_hash:crypto.createHash('sha256').update(secret).digest(),expires_at,busy:false});
+    return {page_ref,secret,expires_at};
+  }
+  function authenticatedPage(siteId, body) {
+    pageSite(siteId); prunePages();
+    const p = pages.get(body.page_ref);
+    const hash = crypto.createHash('sha256').update(typeof body.secret === 'string' ? body.secret : '').digest();
+    if (!p || p.site_id !== siteId || typeof body.secret !== 'string' || !crypto.timingSafeEqual(hash,p.secret_hash)) fail('CALLBACK_PAGE_SESSION_INVALID',401);
+    return p;
+  }
+  function pageCommand(siteId, body) {
+    expirePageJobs();
+    const p = authenticatedPage(siteId,body);
+    for (const j of state.jobs) {
+      if (j.status !== 'waiting_page' || j.site_id !== siteId || j.event?.page_ref !== body.page_ref || j.event?.order_ref !== p.order_ref) continue;
+      try { executionSite(j); } catch { continue; }
+      if (j.page_deadline <= now()) continue;
+      return {job_id:j.id,step:j.step,action:'reload',path:p.path};
+    }
+    return null;
+  }
+  function pollPage(siteId, body, signal, timeout = 20000) {
+    const p = authenticatedPage(siteId,body);
+    if (p.busy) fail('CALLBACK_PAGE_BUSY',409);
+    if (!healthy) fail('CALLBACK_STORAGE_UNAVAILABLE',503);
+    p.busy = true;
+    return new Promise((resolve,reject) => {
+      let done = false;
+      const finish = (error,result) => {
+        if (done) return; done = true; p.busy = false;
+        clearTimeout(timer); pageWaiters.delete(check); signal?.removeEventListener('abort',abort);
+        if (error) reject(error); else resolve(result);
+      };
+      const check = () => { try { const cmd = pageCommand(siteId,body); if (cmd) finish(null,cmd); } catch(e) { finish(e); } };
+      const abort = () => finish(null,null);
+      const timer = setTimeout(() => { try { finish(null,pageCommand(siteId,body)); } catch(e) { finish(e); } },timeout);
+      pageWaiters.add(check); signal?.addEventListener('abort',abort,{once:true});
+      if (signal?.aborted) abort(); else check();
+    });
+  }
+  function acknowledgePage(siteId,body) {
+    const cmd = pageCommand(siteId,body);
+    if (!cmd || cmd.job_id !== body.job_id || cmd.step !== body.step) fail('CALLBACK_PAGE_COMMAND_INVALID',409);
+    patchJob(cmd.job_id,j => {
+      j.results.push({step:j.step,type:'page_refresh',output:{notification_acknowledged:true},trusted:false});
+      j.step++; j.status = 'pending'; delete j.page_deadline;
+    });
+    pages.delete(body.page_ref);
+    schedule();
+    return {ok:true};
+  }
   function review(id) { return patchJob(id,j => { if (j.status === 'running') fail('CALLBACK_BUSY',409); j.status = 'manual_review'; delete j.lease; }); }
   schedule();
-  return { list, save, publish, toggle, remove, receive, run, test, bindingStatus, wake: schedule, browserStep, browserResult, review, job: id => safeJob(findJob(id)), status: () => ({ storage_healthy: healthy, running }) };
+  return { list, save, publish, toggle, remove, receive, run, test, bindingStatus, registerPage, pollPage, acknowledgePage, wake: schedule, browserStep, browserResult, review, job: id => safeJob(findJob(id)), status: () => ({ storage_healthy: healthy, running }) };
 }
 
 module.exports = { normalizeCallback, normalizeDraft, CallbackError, createCallbackService, runBackend };

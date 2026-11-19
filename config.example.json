@@ -16,6 +16,7 @@
         "enabled": false,
         "template_id": "",
         "signing_key_env": "IH_CALLBACK_SIGNING_KEY",
+        "page_enabled": false,
         "auto_run": false
       },
       "api_proxy": {
