@@ -304,6 +304,7 @@ const PLACEHOLDERS = {
 const HELP = {
 en: [
   { h: "VMQ callback to a custom JS template", items: [
+    "Open External callbacks → VMQ checkout. Select the site, enter a unique order reference and amount, and choose a payment method. Share checkoutUrl with the customer or use qrImageUrl to display the QR code. Use amountDue as the amount to pay. For example, an order for ¥10 may show ¥10.01 so VMQ can identify the payment.",
     "Publish a template, edit the site, select the published template, enable Receive signed callbacks and VMQ callback adapter. Enable automatic backend steps only when the script is ready. Store the VMQ communication key server-side under IH_CALLBACK_VMQ_KEY; the form contains only the environment variable name. Check saved settings to obtain /__ih/callback/vmq/SITE_ID, and put the complete HTTPS URL in VMQ's callback address. An order-specific VMQ URL overrides its global default.",
     "A callback is a server request, not a browser redirect. VMQ sends order fields and a signature. The receiver verifies and durably saves one template task, then replies success. Retries with the same event do not execute the template again. success does not mean the upstream account has been recharged. JS receives payId, param, type, price and reallyPrice; the communication key stays secret.",
     "Example data-only backend script: <code>return { order_ref: input.payId, amount: input.reallyPrice, business_data: input.param };</code>. The current backend and administrator Worker still have no network or original-page DOM access. Automatic upstream recharge needs an explicitly supported upstream API or controlled browser action; arbitrary JS alone cannot provide it. Open task details to inspect failures, not repeated payment notifications."
@@ -412,6 +413,7 @@ en: [
 ],
 zh: [
   { h: "VMQ 回调接到自定义 JS：一步步配置", items: [
+    "打开「外部回调 → VMQ 收银台」，选择站点，填写唯一业务订单号、金额和支付方式。把 checkoutUrl 发给顾客，或用 qrImageUrl 展示付款二维码。顾客按 amountDue 付款。例如下单 10 元时，VMQ 可能显示 10.01 元，以便区分不同订单。",
     "先在“外部回调”保存并发布模板。编辑站点，选择模板，打开“接收签名回调”和“VMQ 回调适配”。脚本准备好才开启自动执行。服务端 IH_CALLBACK_VMQ_KEY 的值与 VMQ 通信密钥一致；界面只填变量名，不填秘密。保存并检查配置，复制显示的 /__ih/callback/vmq/站点ID，前面加本站 HTTPS 域名，填入 VMQ 的回调地址。旧订单自己带回调地址时会覆盖默认地址。",
     "这不是页面跳转，而是 VMQ 服务器请求本站。本站核对签名、将通知可靠保存为一个模板任务，再回答 success。同一笔重复补发不会重复建任务。success 仅表示接收，不代表 8888ok 已充值。脚本读取 payId（业务订单）、param（业务附加数据）、type（支付类型）、price（订单金额）、reallyPrice（实付金额），拿不到通信密钥。",
     "示例后端 JS：<code>return { order_ref: input.payId, amount: input.reallyPrice, business_data: input.param };</code>，只整理参数，不充值。当前后端 JS 和管理员 Worker 仍不能联网或操作原站页面；自动充值还需对接允许的原站接口或受控浏览器动作。订单与账户应在下单时关联，到账金额不能推断账户。模板失败请查看任务详情，不要靠重复补发盲目充值。"
