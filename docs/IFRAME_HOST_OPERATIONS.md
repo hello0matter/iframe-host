@@ -128,6 +128,15 @@ API 分支转发方法、查询参数、Authorization、内容编码和正文，
 - 为防止破坏响应，`content-length`、`transfer-encoding`、`connection`、`keep-alive` 不会被规则改写，`set-cookie` 数组也不会被改写。
 - 命中响应正文规则时不会写入 fallback 预热缓存，避免把改写后的内容缓存成上游原始响应；关闭站点或删除规则后立即恢复原行为。
 
+### 支付弹窗 URL 规则（一键预设）
+
+- 场景：`/666/purchase` 里的“重新打开支付页面”不读请求参数 `return_url`，而是读创建订单接口 `POST /api/v1/payment/orders` 返回的 `data.pay_url`。所以只改请求里的 `return_url` 不会改变弹窗地址。
+- 后台操作：编辑站点 →「请求 / 响应键值脚本」→ 点击「添加支付弹窗 URL 规则」。预设会自动生成一条响应规则：URL 正则为 `^/api/v1/payment/orders/?(?:\?.*)?$`，方向为响应，位置为 JSON 正文键，键为 `data.pay_url`。
+- 把脚本中的 `https://example.com/replace-with-your-payment-url` 改成真正要打开的完整 HTTPS URL（包括必要 query）。如果目标地址需要签名参数，必须把签名后的完整 URL 填进去；这条规则只改变浏览器打开哪里，不会修改原站订单签名或支付状态。
+- 保存站点后，对 `/666/purchase` 做强制刷新（Ctrl+F5），再下单或点“重新打开支付页面”。普通刷新可能继续使用浏览器缓存里的旧脚本或旧下单结果。
+- 这条规则可以随时停用或删除；停用/删除后立即恢复原站的 `pay_url`。URL 正则不要带 `/666` 前缀，也不会匹配 `/api/v1/payment/orders/123/cancel` 之类的子路径。
+- 调试时打开站点的调试开关，只记录命中和改写阶段，不会打印完整 `Authorization` / `Cookie`，也不会记录脚本异常原文。
+
 ## 验证码与手动登录排查
 
 - 多站点代理会给上游响应中以 `/` 开头的 `Location` 补当前站点前缀；已带前缀的路径不会重复添加，其他域名的跳转保持原样。例如 `/666/` 站点的 `/login` 跳转应变为 `/666/login`。此修复仅针对 HTTP 响应跳转，不代表所有 SPA 客户端路由已兼容。
