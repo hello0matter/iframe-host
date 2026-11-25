@@ -116,7 +116,10 @@ async function main() {
   assert.ok(evaluate("localizeError('site id: 1-64 chars [A-Za-z0-9_-]')").includes('Site ID'));
   assert.equal(evaluate('HELP.zh.length'), evaluate('HELP.en.length'));
   for (const lang of ['zh', 'en']) {
-    const guide = JSON.parse(evaluate(`JSON.stringify(HELP.${lang}.slice(0, 3))`));
+    const vmqGuide = evaluate(`JSON.stringify(HELP.${lang}[0])`);
+    assert.ok(vmqGuide.includes('/__ih/callback/vmq/SITE_ID') || vmqGuide.includes('/__ih/callback/vmq/站点ID'));
+    assert.ok(vmqGuide.includes('IH_CALLBACK_VMQ_KEY'));
+    const guide = JSON.parse(evaluate(`JSON.stringify(HELP.${lang}.slice(1, 4))`));
     assert.equal(guide.length, 3);
     assert.deepEqual(guide.map(section => section.items.length), [5, 3, 4]);
     const text = guide.map(section => section.items.join(' ')).join(' ');
@@ -130,7 +133,13 @@ async function main() {
     assert.ok(!text.includes('console.log'), 'examples must not encourage logging verification tokens');
   }
   evaluate('loadCallbackForm({})');
-  assert.deepEqual(JSON.parse(evaluate('JSON.stringify(collectCallbackForm())')), { enabled:false, template_id:'', signing_key_env:'IH_CALLBACK_SIGNING_KEY', auto_run:false, page_enabled:false });
+  assert.deepEqual(JSON.parse(evaluate('JSON.stringify(collectCallbackForm())')), { enabled:false, template_id:'', signing_key_env:'IH_CALLBACK_SIGNING_KEY', auto_run:false, page_enabled:false, vmq_enabled:false, vmq_key_env:'IH_CALLBACK_VMQ_KEY' });
+  evaluate("$('siteCallbackVmqEnabled').value='true';$('siteCallbackVmqKeyEnv').value='IH_CALLBACK_SITE_VMQ'");
+  assert.equal(evaluate('collectCallbackForm().vmq_enabled'),true);
+  assert.equal(evaluate('collectCallbackForm().vmq_key_env'),'IH_CALLBACK_SITE_VMQ');
+  evaluate("$('siteCallbackVmqKeyEnv').value='VMQ_SECRET'");
+  assert.throws(()=>evaluate('collectCallbackForm()'), /callback|回调/);
+  evaluate('loadCallbackForm({})');
   evaluate("$('siteCallbackPage').value='true'");
   assert.equal(evaluate('collectCallbackForm().page_enabled'),true);
   evaluate("$('siteCallbackEnabled').value='true'");

@@ -1,6 +1,68 @@
 const express = require('express');
 const path = require('node:path');
+const { createHmac, randomBytes } = require('node:crypto');
 const { CallbackError } = require('./callback-service');
+
+function checkoutOrigin(value, allowLoopback = false) {
+  try {
+    const url = new URL(value);
+    const localHttp = allowLoopback && url.protocol === 'http:' &&
+      ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname);
+    if ((url.protocol === 'https:' || localHttp) && url.href === url.origin + '/') return url.origin;
+  } catch {}
+  throw new CallbackError('VMQ_CHECKOUT_NOT_CONFIGURED', 503);
+}
+
+async function createVmqCheckout(body, service) {
+  const { site_id, pay_id, price, type } = body || {};
+  if (typeof site_id !== 'string' || typeof pay_id !== 'string' ||
+    !/^[A-Za-z0-9_.:-]{1,128}$/.test(pay_id) || typeof price !== 'string' ||
+    !/^(?:0|[1-9]\d{0,8})(?:\.\d{1,2})?$/.test(price) || Number(price) <= 0 ||
+    !['1', '2'].includes(type)) throw new CallbackError('VMQ_CHECKOUT_INVALID');
+  const publicOrigin = checkoutOrigin(process.env.IH_VMQ_CHECKOUT_ORIGIN, true);
+  const apiOrigin = checkoutOrigin(process.env.IH_VMQ_API_ORIGIN || publicOrigin, true);
+  const callbackOrigin = checkoutOrigin(process.env.IH_VMQ_CALLBACK_ORIGIN);
+  const binding = service.bindingStatus(site_id);
+  if (!binding.enabled || !binding.vmq_enabled || !binding.vmq_key_configured ||
+    !binding.published_version || !binding.template_enabled || !binding.storage_healthy) {
+    throw new CallbackError('VMQ_CHECKOUT_CALLBACK_UNREADY', 409);
+  }
+
+  const params = {
+    nonce: randomBytes(16).toString('hex'), param: '', payId: pay_id, price,
+    signType: 'HMAC_SHA256', timestamp: String(Date.now()), type,
+  };
+  const canonical = Object.keys(params).sort().map(key => key + '=' + params[key]).join('&');
+  const sign = createHmac('sha256', process.env[binding.vmq_key_env]).update(canonical).digest('hex');
+  let result;
+  try {
+    const response = await fetch(apiOrigin + '/createOrder', {
+      method: 'POST',
+      body: new URLSearchParams({ ...params, sign, notifyUrl: callbackOrigin + binding.vmq_receive_path }),
+      signal: AbortSignal.timeout(8000),
+      redirect: 'error',
+    });
+    if (!response.ok) throw new Error();
+    result = await response.json();
+  } catch {
+    throw new CallbackError('VMQ_CHECKOUT_STATUS_UNKNOWN', 502);
+  }
+  if (result?.code === -1) throw new CallbackError('VMQ_CHECKOUT_REJECTED', 409);
+  const order = result?.data;
+  if (result?.code !== 1 || order?.payId !== pay_id || typeof order.orderId !== 'string' ||
+    !order.orderId || typeof order.accessToken !== 'string' || !order.accessToken ||
+    typeof order.payUrl !== 'string' || !order.payUrl || Number(order.reallyPrice) <= 0 ||
+    !Number.isFinite(Number(order.reallyPrice))) throw new CallbackError('VMQ_CHECKOUT_STATUS_UNKNOWN', 502);
+
+  const checkout = new URL('/vmq/pay', publicOrigin);
+  checkout.search = new URLSearchParams({ orderId: order.orderId, accessToken: order.accessToken });
+  const image = new URL('/enQrcode', publicOrigin);
+  image.searchParams.set('url', order.payUrl);
+  return {
+    payId: pay_id, orderId: order.orderId, amountDue: Number(order.reallyPrice).toFixed(2),
+    checkoutUrl: checkout.href, qrCodeContent: order.payUrl, qrImageUrl: image.href,
+  };
+}
 
 function mountCallbackRoutes(app, { service, adminBase, ensureAuth, getSites }) {
   app.get('/__ih/callback/admin.js', (req,res) => {
@@ -53,6 +115,18 @@ function mountCallbackRoutes(app, { service, adminBase, ensureAuth, getSites }) 
     const entry=rate.get(bucket)||{minute,count:0};
     entry.count++;rate.set(bucket,entry);return entry.count<=limit;
   }
+  app.get('/__ih/callback/vmq/:siteId', (req,res,next) => {
+    res.setHeader('Cache-Control','no-store');
+    res.setHeader('Referrer-Policy','no-referrer');
+    res.setHeader('X-Content-Type-Options','nosniff');
+    if (!rateAllowed('vmq-global',120) || !rateAllowed('vmq-site:'+req.params.siteId,30)) return res.status(429).set('Retry-After','60').type('text/plain').send('rate limited');
+    try {
+      const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?') + 1) : '';
+      const result = service.receiveVmq(req.params.siteId,query);
+      res.setHeader('X-IH-Job-Id',result.job_id);
+      res.status(200).type('text/plain').send(result.ack_body);
+    } catch(e) { next(e); }
+  });
   app.post('/__ih/callback/:siteId', (req,res,next) => {
     if(!rateAllowed('global',120)||!rateAllowed('site:'+req.params.siteId,30))return res.status(429).set('Retry-After','60').json({error:'CALLBACK_RATE_LIMIT'});
     if ((req.headers['content-encoding'] || 'identity') !== 'identity' || !/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) return res.status(415).json({ error: 'CALLBACK_JSON_REQUIRED' });
@@ -70,6 +144,14 @@ function mountCallbackRoutes(app, { service, adminBase, ensureAuth, getSites }) 
   router.use(ensureAuth, express.json({ limit: '96kb' }));
   const route = fn => (req,res,next) => { Promise.resolve().then(() => fn(req,res)).catch(next); };
   router.get('/', route((req,res) => res.json({ ok: true, data: service.list() })));
+  router.post('/vmq/checkout', route(async (req,res) => {
+    if (!rateAllowed('vmq-checkout-admin', 20)) {
+      throw new CallbackError('CALLBACK_RATE_LIMIT', 429);
+    }
+    const site = getSites().find(site => site.id === req.body?.site_id && site.enabled);
+    if (!site) throw new CallbackError('VMQ_CHECKOUT_CALLBACK_UNREADY', 409);
+    res.status(201).json({ ok: true, data: await createVmqCheckout(req.body, service) });
+  }));
   router.post('/templates', route((req,res) => res.status(201).json({ ok: true, data: service.save(null,req.body) })));
   router.put('/templates/:id', route((req,res) => res.json({ ok: true, data: service.save(req.params.id,req.body) })));
   router.post('/templates/:id/publish', route((req,res) => res.json({ ok: true, data: service.publish(req.params.id) })));

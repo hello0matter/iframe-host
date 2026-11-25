@@ -16,6 +16,8 @@
         "enabled": false,
         "template_id": "",
         "signing_key_env": "IH_CALLBACK_SIGNING_KEY",
+        "vmq_enabled": false,
+        "vmq_key_env": "IH_CALLBACK_VMQ_KEY",
         "page_enabled": false,
         "auto_run": false
       },

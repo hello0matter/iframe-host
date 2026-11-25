@@ -11,12 +11,14 @@ const clone = value => JSON.parse(JSON.stringify(value));
 function normalizeCallback(raw) {
   if (raw !== undefined && (!raw || typeof raw !== 'object' || Array.isArray(raw))) fail('CALLBACK_CONFIG_INVALID');
   const v = raw || {};
-  for (const key of ['enabled', 'auto_run', 'page_enabled']) if (v[key] !== undefined && typeof v[key] !== 'boolean') fail('CALLBACK_CONFIG_INVALID');
+  for (const key of ['enabled', 'auto_run', 'page_enabled', 'vmq_enabled']) if (v[key] !== undefined && typeof v[key] !== 'boolean') fail('CALLBACK_CONFIG_INVALID');
   const template_id = v.template_id || '';
   const signing_key_env = v.signing_key_env || 'IH_CALLBACK_SIGNING_KEY';
   if (typeof template_id !== 'string' || (template_id && !/^cb-[a-f0-9]{24}$/.test(template_id)) || typeof signing_key_env !== 'string' || !/^IH_CALLBACK_[A-Z0-9_]{1,80}$/.test(signing_key_env)) fail('CALLBACK_CONFIG_INVALID');
   if (v.enabled && !template_id) fail('CALLBACK_TEMPLATE_REQUIRED');
-  return { enabled: v.enabled === true, template_id, signing_key_env, auto_run: v.auto_run === true, page_enabled: v.page_enabled === true };
+  const vmq_key_env = v.vmq_key_env || 'IH_CALLBACK_VMQ_KEY';
+  if (typeof vmq_key_env !== 'string' || !/^IH_CALLBACK_[A-Z0-9_]{1,80}$/.test(vmq_key_env)) fail('CALLBACK_CONFIG_INVALID');
+  return { enabled: v.enabled === true, template_id, signing_key_env, auto_run: v.auto_run === true, page_enabled: v.page_enabled === true, vmq_enabled: v.vmq_enabled === true, vmq_key_env };
 }
 function boundedJson(value, limit = 16384) {
   let text;
@@ -165,9 +167,13 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
     try { event = JSON.parse(rawBody.toString('utf8')); } catch { fail('CALLBACK_JSON_INVALID'); }
     if (!event || Array.isArray(event) || typeof event !== 'object' || typeof event.event_id !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(event.event_id)) fail('CALLBACK_EVENT_ID_INVALID');
     const digest = crypto.createHash('sha256').update(rawBody).digest('hex');
+    return receiveEvent(siteId, event, digest, 'signed_external');
+  }
+  function receiveEvent(siteId, event, digest, source, ackBody) {
+    const binding = getSite(siteId).externalCallback;
     const existing = state.jobs.find(j => j.site_id === siteId && j.event_id === event.event_id);
     if (existing) {
-      if (existing.digest !== digest) fail('CALLBACK_EVENT_CONFLICT',409);
+      if (existing.digest !== digest || existing.source !== source) fail('CALLBACK_EVENT_CONFLICT',409);
       return { job_id: existing.id, duplicate: true, ack_body: existing.ack_body };
     }
     const t = findTemplate(binding.template_id);
@@ -175,18 +181,47 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
     if (state.jobs.length >= maxJobs) fail('CALLBACK_JOB_LIMIT',503);
     const input = redact(boundedJson(event));
     const job = commit(next => {
-      const j = { id: crypto.randomUUID(), site_id: siteId, template_id: t.id, version: t.published.version, steps: clone(t.published.steps), ack_body: t.published.ack_body, event_id: event.event_id, digest, event: input, input, results: [], step: 0, status: 'pending', created_at: now(), updated_at: now(), source: 'signed_external', payment_verified: false };
+      const j = { id: crypto.randomUUID(), site_id: siteId, template_id: t.id, version: t.published.version, steps: clone(t.published.steps), ack_body: ackBody === undefined ? t.published.ack_body : ackBody, event_id: event.event_id, digest, event: input, input, results: [], step: 0, status: 'pending', created_at: now(), updated_at: now(), source, payment_verified: false };
       next.jobs.push(j); return j;
     });
     if (binding.auto_run) schedule();
     return { job_id: job.id, duplicate: false, ack_body: job.ack_body };
   }
   function context(j) { return boundedJson({ input: j.input, event: j.event, previous: j.results.map(r => ({ step: r.step, type: r.type, output: r.output, trusted: r.type !== 'browser_js' })) }, 65536); }
+  function receiveVmq(siteId, rawQuery) {
+    if (!healthy) fail('CALLBACK_STORAGE_UNAVAILABLE',503);
+    const site = getSite(siteId);
+    const binding = site?.externalCallback;
+    if (!site?.enabled || !binding?.enabled || !binding.vmq_enabled) fail('CALLBACK_VMQ_DISABLED',404);
+    const key = env[binding.vmq_key_env];
+    if (typeof key !== 'string' || Buffer.byteLength(key) < 32) fail('CALLBACK_VMQ_KEY_MISSING',503);
+    if (typeof rawQuery !== 'string' || Buffer.byteLength(rawQuery) > 12000) fail('CALLBACK_DATA_TOO_LARGE',413);
+    if (/%(?![a-f0-9]{2})/i.test(rawQuery)) fail('CALLBACK_VMQ_PARAMS_INVALID');
+    const allowed = ['payId','param','type','price','reallyPrice','signType','eventId','timestamp','nonce','sign'];
+    const params = new Map();
+    for (const [k,v] of new URLSearchParams(rawQuery)) {
+      if (!allowed.includes(k) || params.has(k) || v.includes('\uFFFD') || /[\u0000-\u001f\u007f]/.test(v) || Buffer.byteLength(v) > 4096) fail('CALLBACK_VMQ_PARAMS_INVALID');
+      params.set(k,v);
+    }
+    for (const k of allowed.filter(k => k !== 'param')) if (!params.has(k) || !params.get(k)) fail('CALLBACK_VMQ_PARAMS_INVALID');
+    if (params.get('signType') !== 'HMAC_SHA256' || !/^[a-f0-9]{64}$/.test(params.get('sign'))) fail('CALLBACK_SIGNATURE_INVALID',401);
+    const canonical = [...params].filter(([k]) => k !== 'sign').sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0).map(([k,v]) => k + '=' + v).join('&');
+    const expected = crypto.createHmac('sha256',key).update(canonical).digest();
+    if (!crypto.timingSafeEqual(expected,Buffer.from(params.get('sign'),'hex'))) fail('CALLBACK_SIGNATURE_INVALID',401);
+    const eventId = params.get('eventId');
+    if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(params.get('payId')) || !/^payment-[A-Za-z0-9_.:-]{1,110}$/.test(eventId) || !/^[12]$/.test(params.get('type')) || !/^[a-f0-9]{32}$/.test(params.get('nonce')) || !/^\d{13}$/.test(params.get('timestamp')) || Number(params.get('timestamp')) < 1 || Number(params.get('timestamp')) > now() + 300000) fail('CALLBACK_VMQ_PARAMS_INVALID');
+    for (const k of ['price','reallyPrice']) {
+      if (!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(params.get(k)) || Number(params.get(k)) <= 0) fail('CALLBACK_VMQ_PARAMS_INVALID');
+    }
+    const event = { event_id: 'vmq:' + eventId, provider: 'vmq', payId: params.get('payId'), param: params.get('param') || '', type: params.get('type'), price: params.get('price'), reallyPrice: params.get('reallyPrice'), eventId, timestamp: params.get('timestamp') };
+    const digest = crypto.createHash('sha256').update(JSON.stringify(event)).digest('hex');
+    return receiveEvent(siteId,event,digest,'signed_vmq','success');
+  }
   function patchJob(id,change) { return commit(next => { const j = findJob(id,next); change(j); j.updated_at = now(); return j; }); }
   function executionSite(j) {
     const site = getSite(j.site_id);
     const t = findTemplate(j.template_id);
-    if (!site?.enabled || (j.source !== 'admin_test' && (!site.externalCallback?.enabled || site.externalCallback.template_id !== j.template_id)) || !t.enabled || t.archived) fail('CALLBACK_EXECUTION_PAUSED',409);
+    if (!site?.enabled || (j.source !== 'admin_test' && (!site.externalCallback?.enabled || site.externalCallback.template_id !== j.template_id)) || (j.source === 'signed_vmq' && !site.externalCallback?.vmq_enabled) || !t.enabled || t.archived) fail('CALLBACK_EXECUTION_PAUSED',409);
   }
   async function run(id) {
     const initial = findJob(id);
@@ -231,7 +266,7 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
       if (running || !healthy) return;
       const j = state.jobs.find(j => {
         const site = getSite(j.site_id); const t = state.templates.find(t => t.id === j.template_id);
-        return j.source !== 'admin_test' && j.status === 'pending' && site?.enabled && site.externalCallback?.enabled && site.externalCallback.template_id === j.template_id && site.externalCallback.auto_run && t?.enabled && !t.archived;
+        return j.source !== 'admin_test' && j.status === 'pending' && site?.enabled && site.externalCallback?.enabled && (j.source !== 'signed_vmq' || site.externalCallback.vmq_enabled) && site.externalCallback.template_id === j.template_id && site.externalCallback.auto_run && t?.enabled && !t.archived;
       });
       if (j) void run(j.id).catch(() => {});
     });
@@ -269,7 +304,7 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
     const site = getSite(id); if (!site) fail('CALLBACK_SITE_NOT_FOUND',404);
     const binding = site.externalCallback || normalizeCallback();
     const t = state.templates.find(t => t.id === binding.template_id);
-    return { ...binding, key_configured: typeof env[binding.signing_key_env] === 'string' && Buffer.byteLength(env[binding.signing_key_env]) >= 32, published_version: t?.published?.version || 0, template_enabled: t?.enabled === true && !t.archived, storage_healthy: healthy };
+    return { ...binding, key_configured: typeof env[binding.signing_key_env] === 'string' && Buffer.byteLength(env[binding.signing_key_env]) >= 32, vmq_key_configured: typeof env[binding.vmq_key_env] === 'string' && Buffer.byteLength(env[binding.vmq_key_env]) >= 32, vmq_receive_path: '/__ih/callback/vmq/' + encodeURIComponent(id), published_version: t?.published?.version || 0, template_enabled: t?.enabled === true && !t.archived, storage_healthy: healthy };
   }
   function pageSite(siteId) {
     const site = getSite(siteId);
@@ -349,7 +384,7 @@ function createCallbackService({ stateFile, getSite, env = process.env, now = Da
   }
   function review(id) { return patchJob(id,j => { if (j.status === 'running') fail('CALLBACK_BUSY',409); j.status = 'manual_review'; delete j.lease; }); }
   schedule();
-  return { list, save, publish, toggle, remove, receive, run, test, bindingStatus, registerPage, pollPage, acknowledgePage, wake: schedule, browserStep, browserResult, review, job: id => safeJob(findJob(id)), status: () => ({ storage_healthy: healthy, running }) };
+  return { list, save, publish, toggle, remove, receive, receiveVmq, run, test, bindingStatus, registerPage, pollPage, acknowledgePage, wake: schedule, browserStep, browserResult, review, job: id => safeJob(findJob(id)), status: () => ({ storage_healthy: healthy, running }) };
 }
 
 module.exports = { normalizeCallback, normalizeDraft, CallbackError, createCallbackService, runBackend };

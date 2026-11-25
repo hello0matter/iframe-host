@@ -60,6 +60,17 @@ async function main() {
   assert.equal(job.status,'completed');
   assert.equal(job.payment_verified,false);
   assert.deepEqual(job.input,{total:101,untrusted:true});
+  const optionalTemplate=service.publish(service.save(null,{...draft,steps:[
+    step('server_node','return {amount:input.amount};'),
+    {...step('browser_js','throw new Error("disabled browser must not run");'),enabled:false},
+    {...step('page_refresh',''),enabled:false},
+    step('server_node','return {...input,processed:true};')
+  ]}).id);
+  const optionalJob=await service.run(service.test(optionalTemplate.id,'demo',{amount:12}).id);
+  assert.equal(optionalJob.status,'completed');
+  assert.equal(optionalJob.payment_verified,false);
+  assert.deepEqual(optionalJob.input,{amount:12,processed:true});
+  assert.equal(optionalJob.results.some(result=>result.type==='browser_js'||result.type==='page_refresh'),false);
   await assert.rejects(service.run(job.id),/CALLBACK_JOB_NOT_RUNNABLE/);
   expectCode(()=>service.remove(template.id,[template.id]),'CALLBACK_TEMPLATE_IN_USE');
   assert.equal(service.remove(template.id).archived,true);
