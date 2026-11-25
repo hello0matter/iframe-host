@@ -28,7 +28,14 @@
 - 这个入口只负责创建 VMQ 订单并 302 跳转到收银台，不证明付款成功，也不会自动给原站账户充值。到账回调、订单核验和原站充值需要另做受控流程。
 - 公开入口有全局和单 IP 限流。不要在 URL 中传通信密钥；密钥只存在服务端受保护的环境变量里。
 
-通过 FRP 暴露的 HTTP 端口需要单独配置公网 HTTPS 入口。VMQ 容器需要能解析回调域名并直连其 HTTPS 端口。如果 VMQ 提示“异步通知地址不安全或不允许”，先从容器检查域名解析和访问，再核对回调地址。
+### 当前生产接入方式（hacket.top）
+
+- VMQ API 由 `vmq.service` 运行在服务器本机 `127.0.0.1:50126`；数据库是 `vmq-postgres` 容器，监听宿主机 `127.0.0.1:5433`。WAR 包位于 `/root/vmq-checkout-stage/vmq.war`，静态页面位于 `/opt/vmq-web/vmq/`。
+- VMQ 管理后台：`https://hacket.top/vmq/login`。收银台页面：`https://hacket.top/vmq/pay?orderId=...&accessToken=...`。这两个地址都由现有 `hacket.top` HTTPS 证书提供，不需要额外域名。
+- Nginx 把 `/vmq/` 指向静态页面，`/vmq-api/` 及 `/createOrder`、`/enQrcode` 等 API 路径指向本机 VMQ API。不要把这些路径暴露成内网 HTTP 地址给顾客。
+- iframe-host 服务环境变量位于 `/etc/iframe-host/secrets/vmq.env`，包含 `IH_VMQ_API_ORIGIN=http://127.0.0.1:50126`、`IH_VMQ_CHECKOUT_ORIGIN=https://hacket.top`、`IH_VMQ_CALLBACK_ORIGIN=https://hacket.top` 和 `IH_CALLBACK_VMQ_KEY`。通信密钥只保存在服务器受限文件中，界面、文档与聊天记录都不显示明文。
+- VMQ 后台“系统设置”的回调地址已指向本站签名回调入口；这只表示通知链路已配置，不代表到账后会自动给原站充值。回调模板、自动执行和受控动作仍是后续独立步骤。
+- 通过 FRP 暴露的 HTTP 端口需要单独配置公网 HTTPS 入口。VMQ 监听端需要能解析回调域名并直连其 HTTPS 端口。如果 VMQ 提示“异步通知地址不安全或不允许”，先从监听端检查域名解析和访问，再核对回调地址。
 
 ## VMQ 直接接入已有 JS 模板
 

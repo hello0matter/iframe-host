@@ -142,7 +142,7 @@ API 分支转发方法、查询参数、Authorization、内容编码和正文，
 - 后台同一区域提供「添加 VMQ 收银台规则」预设。它也是修改 `data.pay_url`，但返回值不是固定 URL，而是本站公开入口：`/__ih/vmq/checkout/<站点 ID>?pay_id=<业务订单号>&price=<金额>&type=<1 微信 / 2 支付宝>`。
 - 预设脚本会从原支付链接提取 `money` 和 `out_trade_no`，从下单请求体判断 `payment_type`；微信映射到 VMQ `type=1`，支付宝及其他映射到 `type=2`。
 - 公开入口在服务端用 VMQ 通信密钥签名创建订单，成功后 302 跳转到 VMQ 收银台 `checkoutUrl`。浏览器看到的是 VMQ 收银台，不再打开原站 `api.zxspro.cn` 那条签名错误的链接。
-- 服务端必须先配置 `IH_VMQ_API_ORIGIN`、`IH_VMQ_CHECKOUT_ORIGIN`、`IH_VMQ_CALLBACK_ORIGIN` 和 `IH_CALLBACK_VMQ_KEY`，并在站点编辑里开启「VMQ 回调适配」。只使用收银台时不要求发布回调模板。
+- 服务端必须先配置 `IH_VMQ_API_ORIGIN`、`IH_VMQ_CHECKOUT_ORIGIN`、`IH_VMQ_CALLBACK_ORIGIN` 和 `IH_CALLBACK_VMQ_KEY`，并在站点编辑里开启「VMQ 回调适配」。生产环境当前使用本机 VMQ API `http://127.0.0.1:50126`、公开收银台 `https://hacket.top`，密钥保存在 `/etc/iframe-host/secrets/vmq.env`。只使用收银台时不要求发布回调模板。
 - 公开入口有全局和单 IP 限流；它只创建收款订单并跳转，不验证到账，也不会给 8888ok 账户充值。回调和自动充值属于后续独立流程。
 - 如果 VMQ 环境变量或站点开关缺失，弹窗会显示对应错误码；先检查服务端环境变量及站点 VMQ 开关，不要修改或伪造支付签名。
 
