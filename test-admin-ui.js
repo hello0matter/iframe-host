@@ -13,6 +13,9 @@ assert.ok(html.includes('data-guide="globalModal"'));
 assert.ok(!html.includes('id="loginLangButton"'));
 assert.ok(!html.includes('id="langButton"'));
 assert.ok(html.includes('id="globalLanguage"'));
+assert.ok(html.includes('id="addVmqCheckoutRuleButton"'));
+assert.ok(source.includes('function addVmqCheckoutRule'));
+assert.ok(source.includes('/__ih/vmq/checkout/'));
 
 const elements = new Map();
 let focused = '';

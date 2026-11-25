@@ -13,7 +13,7 @@ function checkoutOrigin(value, allowLoopback = false) {
   throw new CallbackError('VMQ_CHECKOUT_NOT_CONFIGURED', 503);
 }
 
-async function createVmqCheckout(body, service) {
+async function createVmqCheckout(body, service, options = {}) {
   const { site_id, pay_id, price, type } = body || {};
   if (typeof site_id !== 'string' || typeof pay_id !== 'string' ||
     !/^[A-Za-z0-9_.:-]{1,128}$/.test(pay_id) || typeof price !== 'string' ||
@@ -23,8 +23,9 @@ async function createVmqCheckout(body, service) {
   const apiOrigin = checkoutOrigin(process.env.IH_VMQ_API_ORIGIN || publicOrigin, true);
   const callbackOrigin = checkoutOrigin(process.env.IH_VMQ_CALLBACK_ORIGIN);
   const binding = service.bindingStatus(site_id);
-  if (!binding.enabled || !binding.vmq_enabled || !binding.vmq_key_configured ||
-    !binding.published_version || !binding.template_enabled || !binding.storage_healthy) {
+  if (!binding.vmq_enabled || !binding.vmq_key_configured || !binding.storage_healthy ||
+    (options.requireTemplate !== false &&
+      (!binding.enabled || !binding.published_version || !binding.template_enabled))) {
     throw new CallbackError('VMQ_CHECKOUT_CALLBACK_UNREADY', 409);
   }
 
@@ -140,6 +141,24 @@ function mountCallbackRoutes(app, { service, adminBase, ensureAuth, getSites }) 
       res.status(200).type('text/plain').send(result.ack_body);
     } catch(e) { next(e); }
   });
+  const asyncRoute = fn => (req,res,next) => { Promise.resolve().then(() => fn(req,res)).catch(next); };
+  app.get('/__ih/vmq/checkout/:siteId', asyncRoute(async (req,res) => {
+    res.setHeader('Cache-Control','no-store');
+    res.setHeader('Referrer-Policy','no-referrer');
+    res.setHeader('X-Content-Type-Options','nosniff');
+    if (!rateAllowed('vmq-checkout-global',30) || !rateAllowed('vmq-checkout-ip:'+req.ip,20)) {
+      return res.status(429).set('Retry-After','60').type('text/plain').send('rate limited');
+    }
+    const site = getSites().find(s => s.id === req.params.siteId && s.enabled);
+    if (!site) throw new CallbackError('VMQ_CHECKOUT_SITE_NOT_FOUND',404);
+    const data = await createVmqCheckout({
+      site_id: site.id,
+      pay_id: req.query.pay_id,
+      price: req.query.price,
+      type: req.query.type,
+    }, service, { requireTemplate:false });
+    res.redirect(302, data.checkoutUrl);
+  }));
   const router = express.Router();
   router.use(ensureAuth, express.json({ limit: '96kb' }));
   const route = fn => (req,res,next) => { Promise.resolve().then(() => fn(req,res)).catch(next); };
@@ -166,7 +185,7 @@ function mountCallbackRoutes(app, { service, adminBase, ensureAuth, getSites }) 
   router.post('/jobs/:id/review', route((req,res) => res.json({ ok: true, data: service.review(req.params.id) })));
   app.use(adminBase + '/api/callbacks',router);
   app.use((error,req,res,next) => {
-    if (!req.path.startsWith('/__ih/callback/') && !req.path.startsWith(adminBase + '/api/callbacks')) return next(error);
+    if (!req.path.startsWith('/__ih/callback/') && !req.path.startsWith('/__ih/vmq/') && !req.path.startsWith(adminBase + '/api/callbacks')) return next(error);
     const status = error instanceof CallbackError ? error.status : error.type === 'entity.too.large' ? 413 : error instanceof SyntaxError ? 400 : 500;
     res.status(status).json({ error: error instanceof CallbackError ? error.message : status === 413 ? 'CALLBACK_DATA_TOO_LARGE' : 'CALLBACK_REQUEST_FAILED', message: error instanceof CallbackError ? error.message : 'CALLBACK_REQUEST_FAILED' });
   });

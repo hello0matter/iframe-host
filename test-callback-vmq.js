@@ -135,6 +135,14 @@ async function main() {
     assert.equal(order.amountDue,'1.02');
     assert.equal(new URL(order.checkoutUrl).searchParams.get('accessToken'),'checkout-token');
     assert.equal(new URL(order.qrImageUrl).searchParams.get('url'),order.qrCodeContent);
+    const publicUrl = 'http://127.0.0.1:' + server.address().port + '/__ih/vmq/checkout/demo?pay_id=order-123&price=1.00&type=2';
+    const publicOrder = await fetch(publicUrl,{redirect:'manual'});
+    assert.equal(publicOrder.status,302);
+    assert.equal(publicOrder.headers.get('location'),order.checkoutUrl);
+    assert.equal((await fetch(publicUrl.replace('/demo?','/missing?'),{redirect:'manual'})).status,404);
+    site.externalCallback.enabled = false;
+    assert.equal((await fetch(publicUrl,{redirect:'manual'})).status,302);
+    site.externalCallback.enabled = true;
     const {sign,notifyUrl,...fields} = requests[0];
     assert.equal(notifyUrl,'https://host.example.test/__ih/callback/vmq/demo');
     const canonical = Object.keys(fields).sort().map(k=>k+'='+fields[k]).join('&');
@@ -143,8 +151,8 @@ async function main() {
     assert.equal((await (await checkout()).json()).message,'VMQ_CHECKOUT_REJECTED');
     reply = 'unavailable';
     assert.equal((await (await checkout()).json()).message,'VMQ_CHECKOUT_STATUS_UNKNOWN');
-    assert.equal(requests.length,3);
-    console.log('PASS: VMQ signed callback and admin checkout, script handoff, QR variables, failure handling and authentication. Only local mock orders were created.');
+    assert.equal(requests.length,5);
+    console.log('PASS: VMQ signed callback, admin and public checkout, script handoff, QR variables, failure handling and authentication. Only local mock orders were created.');
   } finally {
     if(server) await new Promise(r=>server.close(r));
     if(vmqServer) await new Promise(r=>vmqServer.close(r));
