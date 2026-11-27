@@ -98,7 +98,7 @@ try:
     subprocess.run(['systemctl','start','iframe-host.service'],check=True)
     def fetch(url,expected=None):
         error=None
-        for _ in range(15):
+        for _ in range(60):
             try:
                 with urllib.request.urlopen(urllib.request.Request(url,headers={'Cache-Control':'no-cache'}),timeout=15) as response:body=response.read()
                 if expected and hashlib.sha256(body).hexdigest()!=expected:raise RuntimeError('Public hash mismatch')

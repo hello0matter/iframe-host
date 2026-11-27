@@ -192,7 +192,7 @@ function createSiteMonitorService(options = {}) {
       const site = siteById(siteId);
       if (!site) throw new Error('site not found');
       const monitor = site.monitor || normalizeSiteMonitor(null, site.targetBase);
-      if (!monitor.enabled) throw new Error('monitor is disabled');
+      if (!monitor.enabled && !force) throw new Error('monitor is disabled');
       const row = record(siteId);
       const last = row.last;
       if (!force && last?.checked_at && now() - last.checked_at < monitor.interval_seconds * 1000) {

@@ -86,6 +86,18 @@ async function main() {
   state = JSON.parse(fs.readFileSync(path.join(tmp, 'state.json'), 'utf8'));
   assert.equal(state.sites.s1.last.checked_at, time);
 
+  const disabledService = createSiteMonitorService({
+    stateFile: path.join(tmp, 'disabled-state.json'),
+    getSites: () => [site({ enabled: false })],
+    env: {},
+    now: () => time,
+    fetchImpl: async () => new Response('<title>A</title>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    sendPush: async () => ({ code: 200 }),
+  });
+  const manualCheck = await disabledService.check('s1', { force: true });
+  assert.equal(manualCheck.first, true);
+  await assert.rejects(() => disabledService.check('s1'), /monitor is disabled/);
+
   html = '<title>A</title><script src="/b.js"></script>';
   time += 1000;
   const changed = await service.check('s1', { force: true });
