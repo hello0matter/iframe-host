@@ -119,10 +119,11 @@ async function main() {
   assert.ok(evaluate("localizeError('site id: 1-64 chars [A-Za-z0-9_-]')").includes('Site ID'));
   assert.equal(evaluate('HELP.zh.length'), evaluate('HELP.en.length'));
   for (const lang of ['zh', 'en']) {
-    const vmqGuide = evaluate(`JSON.stringify(HELP.${lang}[0])`);
+    const sections = JSON.parse(evaluate(`JSON.stringify(HELP.${lang})`));
+    const vmqGuide = JSON.stringify(sections.find(section => section.h.includes('VMQ')));
     assert.ok(vmqGuide.includes('/__ih/callback/vmq/SITE_ID') || vmqGuide.includes('/__ih/callback/vmq/站点ID'));
     assert.ok(vmqGuide.includes('IH_CALLBACK_VMQ_KEY'));
-    const guide = JSON.parse(evaluate(`JSON.stringify(HELP.${lang}.slice(1, 4))`));
+    const guide = sections.filter(section => /^(Verification|验证码)/.test(section.h));
     assert.equal(guide.length, 3);
     assert.deepEqual(guide.map(section => section.items.length), [5, 3, 4]);
     const text = guide.map(section => section.items.join(' ')).join(' ');

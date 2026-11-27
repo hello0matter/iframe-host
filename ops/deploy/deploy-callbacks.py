@@ -15,6 +15,9 @@ FILES = [
     'callback-routes.js', 'callback-script-worker.js', 'check-config.js',
     'package.json', 'package-lock.json', 'public/admin.html', 'public/captcha-client.js',
     'public/callback-admin.js', 'public/callback-browser.html', 'public/callback-page.js',
+    'site-monitor.js', 'payment-service.js', 'payment-routes.js',
+    'payment-adapters/index.js', 'payment-adapters/generic.js', 'payment-adapters/xp-pay.js', 'payment-adapters/vmq.js',
+    'public/payment-capture.js', 'docs/SITE_MONITOR_AND_PAYMENTS.md',
     'docs/IFRAME_HOST_OPERATIONS.md', 'docs/EXTERNAL_CALLBACKS.md',
     'docs/PAYMENT_CALLBACK_WORKFLOW_DESIGN.md',
 ]
@@ -104,6 +107,7 @@ try:
     fetch(public+'/__ih/callback/admin.js?deploy='+stage.name,files['public/callback-admin.js'])
     fetch(public+'/__ih/callback/browser-frame?deploy='+stage.name,files['public/callback-browser.html'])
     fetch(public+'/__ih/callback/page-client.js?deploy='+stage.name,files['public/callback-page.js'])
+    fetch(public+'/__ih/payment/capture.js?deploy='+stage.name,files['public/payment-capture.js'])
     token=login()
     data=call(base+'/api/callbacks/',token=token)['data']
     if not data['storage_healthy']:raise RuntimeError('Callback storage is unhealthy')
@@ -131,7 +135,7 @@ def main() -> int:
     stage='/opt/iframe-host/.callback-deploy-'+datetime.now().strftime('%Y%m%d-%H%M%S')
     client=connect()
     try:
-        code,_,_=run(client,'mkdir -p '+shlex.quote(stage+'/public')+' '+shlex.quote(stage+'/docs'))
+        code,_,_=run(client,'mkdir -p '+shlex.quote(stage+'/public')+' '+shlex.quote(stage+'/docs')+' '+shlex.quote(stage+'/payment-adapters'))
         if code:raise RuntimeError('Cannot create deployment staging directory')
         sftp=client.open_sftp()
         try:

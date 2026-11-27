@@ -42,6 +42,7 @@ python ops\deploy\deploy-yudao-admin.py
 | `test-multisite-integration.js` | 多站点/审计/分析集成测试 |
 | `ops/` | 诊断、部署、验证脚本 |
 | `docs/IFRAME_HOST_OPERATIONS.md` | 生产架构与运维说明 |
+| `docs/SITE_MONITOR_AND_PAYMENTS.md` | 原站监控与支付捕获说明 |
 | `deploy-current-fix.py` | 一键部署 server + admin |
 
 ## 生产要点

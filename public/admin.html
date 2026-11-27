@@ -11,6 +11,18 @@
 #helpContents{margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--line)}#helpContents a{color:var(--accent);padding:6px 10px;background:#e8eef1;border-radius:6px;text-decoration:none}.help-block{scroll-margin-top:20px}input[aria-invalid="true"]{border-color:var(--danger);outline:2px solid #b4231820}.tab-nav{flex-wrap:wrap}
 .captcha-panel{padding:0;gap:0;background:#fff;overflow:hidden}.captcha-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 22px 18px;background:linear-gradient(120deg,#f0fdfa,#fff)}.captcha-heading h3{font-size:17px;margin:3px 0 7px}.captcha-heading p{margin:0;max-width:520px}.captcha-heading button{flex-shrink:0}.captcha-eyebrow{color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.13em}.captcha-group{padding:20px 22px;border-top:1px solid #edf0f3;display:grid;gap:16px}.captcha-group h4{font-size:13px;margin:0;color:#344054}.captcha-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.captcha-grid-three{grid-template-columns:repeat(3,minmax(0,1fr))}.captcha-grid-single{grid-template-columns:minmax(0,1fr)}.captcha-panel .field{min-width:0;align-content:start;grid-template-rows:auto auto;gap:7px;font-size:13px;font-weight:600}.captcha-panel input,.captcha-panel select{min-width:0;height:40px;background:#fff;font-size:13px;font-weight:400}.captcha-panel .hint{line-height:1.6;font-weight:400;overflow-wrap:anywhere}.captcha-panel .field .hint{margin:0;font-size:11px}.captcha-mode-note{margin:0;padding-left:10px;border-left:2px solid #99d5cb}.captcha-advanced{margin:0 22px 20px;border:1px solid var(--line);border-radius:9px;background:#fafbfc}.captcha-advanced summary{padding:14px 16px;cursor:pointer;font-weight:600;font-size:13px}.captcha-summary-hint{font-size:11px;font-weight:400;color:var(--muted);margin-left:12px}.captcha-advanced-body{padding:0 16px 16px;display:grid;gap:16px}.captcha-advanced-body>p{margin:0}.captcha-billing{margin:0 22px 20px;padding:12px 14px;border:1px solid #f2deae;border-radius:8px;background:#fffbf2;color:#85551a;font-size:12px;display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start}.captcha-billing p{margin:0;line-height:1.6}.captcha-footer{border-top:1px solid #edf0f3;padding:16px 22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fafcfc}.captcha-footer .status:empty{display:none}.captcha-footer .status{flex-basis:100%;font-size:12px;overflow-wrap:anywhere}@media(max-width:600px){.captcha-heading,.captcha-group,.captcha-footer{padding:16px}.captcha-grid,.captcha-grid-three{grid-template-columns:minmax(0,1fr);gap:14px}.captcha-advanced,.captcha-billing{margin-left:16px;margin-right:16px}.captcha-summary-hint{display:block;margin:5px 0 0 16px}.captcha-billing{grid-template-columns:1fr;gap:5px}.captcha-heading{gap:10px}}
 .captcha-diagnostics{flex-basis:100%;min-width:0;border-top:1px solid var(--line);padding-top:12px}.captcha-diagnostics summary{cursor:pointer;font-weight:600}.captcha-diagnostics p{margin:10px 0}.captcha-diagnostics pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;font:11px/1.7 Consolas,monospace;background:#f0f4f6;padding:12px;border-radius:7px}
+.modal{display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+.modal-panel{width:100%;max-width:900px;max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);margin:0 auto 40px;display:flex;flex-direction:column;min-height:0}
+.modal-panel>.modal-head{flex:0 0 auto;position:relative;z-index:2;border-radius:12px 12px 0 0;background:var(--card)}
+.modal-panel>.body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;border-radius:0 0 12px 12px}
+.section-toggle{display:block}
+.section-toggle>summary{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;cursor:pointer;list-style:none;margin:0}
+.section-toggle>summary::-webkit-details-marker{display:none}
+.section-toggle>summary::before{content:"▸";color:var(--accent);font-weight:700}
+.section-toggle[open]>summary::before{content:"▾"}
+.section-toggle>summary h3{margin:0}
+.section-toggle>.section-body{display:grid;gap:12px;margin-top:14px}
+@media(max-width:600px){.modal-panel{max-height:calc(100vh - 20px);max-height:calc(100dvh - 20px);margin-bottom:20px}}
 </style>
 </head>
 <body>
@@ -50,6 +62,74 @@
 </div></details>
 <div class="captcha-billing" role="note"><strong>Paid usage</strong><p>One paid task per page. Refreshing may cost another; failed tasks are not retried automatically. A verification result does not guarantee login.</p></div>
 <div class="captcha-footer"><button type="button" class="secondary" id="captchaStatusButton">Check saved verification configuration</button><span class="hint">Checks saved settings only · no paid task</span><span id="captchaConfigStatus" class="status" role="status" aria-live="polite"></span><details id="captchaDiagnostics" class="captcha-diagnostics hidden"><summary>Verification diagnostics</summary><p class="hint">Browser entries are client reports, not proof of login. Recent entries reset when the service restarts; server journal entries follow system retention. No passwords, cookies or verification tokens are recorded.</p><pre id="captchaDiagnosticEvents"></pre></details></div>
+</section>
+<section class="form-section">
+<details class="section-toggle">
+<summary><h3>Original-site monitor</h3><span class="hint">Watch the original page and notify on changes</span></summary>
+<div class="section-body">
+<p class="hint">The server fetches this path on a schedule and compares a fingerprint. A change sends a PushPlus message. It never signs in, pays, or changes the original site.</p>
+<div class="row">
+<label class="field">Monitor switch<select id="siteMonitorEnabled"><option value="false">Off</option><option value="true">On</option></select></label>
+<label class="field">Monitored path<input id="siteMonitorPath" placeholder="/purchase"><span class="hint">Path on the original site, for example /purchase. Do not include the proxy prefix.</span></label>
+<label class="field">Fingerprint mode<select id="siteMonitorMode"><option value="auto">Auto — title, meta, scripts and links</option><option value="regex">Regex — matched text only</option><option value="hash">Hash — whole HTML</option></select></label>
+</div>
+<div class="row">
+<label class="field">Regex pattern (regex mode only)<input id="siteMonitorPattern" placeholder="build-[a-f0-9]+"></label>
+<label class="field">Check interval (seconds)<input id="siteMonitorInterval" type="number" min="30" max="86400" value="300"></label>
+<label class="field">Request timeout (seconds)<input id="siteMonitorTimeout" type="number" min="5" max="60" value="15"></label>
+</div>
+<div class="row">
+<label class="field">Notify on first baseline<select id="siteMonitorFirst"><option value="false">No — save the baseline quietly</option><option value="true">Yes — send a message</option></select></label>
+<label class="field">Notify on fetch errors<select id="siteMonitorErrors"><option value="false">No</option><option value="true">Yes</option></select></label>
+<label class="field">Include script and link URLs<select id="siteMonitorAssets"><option value="true">Yes — detect new bundles</option><option value="false">No — page text only</option></select></label>
+</div>
+<div class="row">
+<label class="field">PushPlus token environment variable<input id="siteMonitorTokenEnv" value="IH_PUSHPLUS_TOKEN"><span class="hint">Enter the variable name only. Set the real token on the server.</span></label>
+<label class="field">Message title template<input id="siteMonitorTitle" value="Original site changed: {site}"><span class="hint">Supports site, id, url, fingerprint and time placeholders.</span></label>
+</div>
+<div class="actions"><button type="button" class="secondary" id="siteMonitorCheck">Check now</button><button type="button" class="secondary" id="siteMonitorTest">Send test notification</button><span id="siteMonitorStatus" class="status"></span></div>
+<pre id="siteMonitorLast" class="body-preview hidden"></pre>
+</div>
+</details>
+</section>
+<section class="form-section">
+<details class="section-toggle">
+<summary><h3>Payment automation</h3><span class="hint">Capture checkout responses and queue payment tasks</span></summary>
+<div class="section-body">
+<p class="hint">Optional. The proxy can watch the original checkout response, save the order, and hand the QR code or pay URL to a phone agent. It never types a payment password or presses the final pay button.</p>
+<div class="row">
+<label class="field">Payment switch<select id="sitePaymentEnabled"><option value="false">Off</option><option value="true">On</option></select></label>
+<label class="field">Response adapter<select id="sitePaymentAdapter"><option value="generic">Generic JSON</option><option value="xp_pay">XPAY / cashier</option><option value="vmq">VMQ</option></select></label>
+<label class="field">Browser response capture<select id="sitePaymentCapture"><option value="false">Off</option><option value="true">On</option></select></label>
+</div>
+<div class="row">
+<label class="field">Capture URL pattern<input id="sitePaymentPattern" placeholder="^/api/v1/payment/orders(?:[?#]|$)"><span class="hint">Matches the upstream path without the proxy prefix. The hook only reads JSON responses.</span></label>
+<label class="field">Match mode<select id="sitePaymentMatchMode"><option value="regex">Regular expression</option><option value="literal">Literal text</option></select></label>
+<label class="field">Default execution<select id="sitePaymentExecution"><option value="qr_display">Show QR in the admin page</option><option value="qr_open_device">Open QR on a phone agent</option><option value="browser_assist">Browser assist</option><option value="api_call">API call</option><option value="notification_settle">Wait for a payment notification</option></select></label>
+</div>
+<p class="hint">Field mapping: where each value lives in the captured JSON. Dotted paths are allowed, for example data.out_trade_no.</p>
+<div class="row">
+<label class="field">Order reference field<input id="sitePaymentOrderRef" placeholder="out_trade_no"></label>
+<label class="field">Amount field<input id="sitePaymentAmount" placeholder="pay_amount"></label>
+<label class="field">QR content or pay URL field<input id="sitePaymentQr" placeholder="pay_url"></label>
+</div>
+<div class="row">
+<label class="field">Expiry field<input id="sitePaymentExpires" placeholder="expires_at"></label>
+<label class="field">Channel field<input id="sitePaymentChannel" placeholder="payment_type"></label>
+<label class="field">Currency field<input id="sitePaymentCurrency" placeholder="currency"></label>
+</div>
+<div class="row">
+<label class="field">Require user approval<select id="sitePaymentApproval"><option value="true">Yes — wait for an administrator</option><option value="false">No — create and queue</option></select></label>
+<label class="field">Dispatch automatically<select id="sitePaymentAutoDispatch"><option value="false">No</option><option value="true">Yes — queue for the phone agent</option></select></label>
+<label class="field">Phone agent device ID<input id="sitePaymentDeviceId" placeholder="phone-1"></label>
+</div>
+<div class="row">
+<label class="field">Device token environment variable<input id="sitePaymentDeviceTokenEnv" value="IH_DEVICE_AGENT_TOKEN"><span class="hint">Enter the variable name only. Set the real token on the server.</span></label>
+</div>
+<div class="actions"><button type="button" class="secondary" id="sitePaymentRefresh">Load recent intents</button><span id="sitePaymentStatus" class="status"></span></div>
+<pre id="sitePaymentLast" class="body-preview hidden"></pre>
+</div>
+</details>
 </section>
 <section class="form-section"><h3>Compatibility and audit controls</h3><div class="row"><label class="field">Enabled<select id="siteEnabled"><option value="true">Enabled — accept public requests</option><option value="false">Disabled — keep configuration only</option></select></label><label class="field">Rewrite request headers<select id="siteRewriteHeaders"><option value="true">On — recommended</option><option value="false">Off</option></select></label><label class="field">Audit probe<select id="siteAudit"><option value="false">Off — do not store bodies</option><option value="true">On — capture bounded bodies</option></select></label></div><label class="field">OAuth bypass paths<textarea id="siteOauth" placeholder="One absolute path per line, for example /auth/callback"></textarea><span class="hint">Only add paths that must bypass the normal proxy rewrite flow.</span></label></section><p class="warning">Enabling audit captures textual request and response bodies up to the server-wide limit. Binary or oversized content is kept only as bounded metadata and a sample.</p><div class="actions"><button id="siteSave">Save site</button><span id="siteSaveStatus" class="status" role="status" aria-live="polite"></span></div></div></div></div>
 <div id="globalModal" class="modal hidden"><div class="modal-panel"><div class="header modal-head"><div><p class="eyebrow">Global</p><h2>Global settings</h2></div><div class="actions"><button type="button" class="secondary" data-guide="globalModal">User guide</button><button class="secondary" data-close="globalModal">Close</button></div></div><div class="body grid"><div class="row"><label class="field">Admin username<input id="globalUsername"></label><label class="field">New password<input id="globalPassword" type="password" autocomplete="new-password"><span class="hint">Leave blank to retain the existing password.</span></label></div><div class="row"><label class="field">Language<select id="globalLanguage"><option value="zh">中文</option><option value="en">English</option></select><span class="hint">Applies to the entire administration interface on this browser.</span></label></div><label class="field">Maximum captured text body bytes<input id="globalAuditBytes" type="number" min="1024" max="10485760"></label><div class="actions"><button id="globalSave">Save global settings</button><span id="globalStatus" class="status"></span></div></div></div></div>
@@ -164,7 +244,29 @@ en: {
 "err.credentials":"Incorrect username or password.","err.unauthorized":"Your session has expired or you are not signed in. Sign in again.",
 "err.adminUsername":"Admin username must be 1–64 letters, numbers, dots, underscores, @ signs or hyphens.","err.adminPassword":"The new password must contain at least 12 characters.",
 "help.back":"Back to sites","help.topics":"Guide topics",
-"help.eyebrow":"Help","help.title":"Configuration guide","help.refresh":"Refresh"
+"help.eyebrow":"Help","help.title":"Configuration guide","help.refresh":"Refresh",
+"badge.monitorOn":"Monitor on","badge.paymentOn":"Payment on",
+"monitor.title":"Original-site monitor","monitor.summary":"Watch the original page and notify on changes",
+"monitor.hint":"The server fetches this path on a schedule and compares a fingerprint. A change sends a PushPlus message. It never signs in, pays, or changes the original site.",
+"monitor.enabled":"Monitor switch","monitor.path":"Monitored path","monitor.pathHint":"Path on the original site, for example /purchase. Do not include the proxy prefix.",
+"monitor.mode":"Fingerprint mode","monitor.modeAuto":"Auto — title, meta, scripts and links","monitor.modeRegex":"Regex — matched text only","monitor.modeHash":"Hash — whole HTML",
+"monitor.pattern":"Regex pattern (regex mode only)","monitor.interval":"Check interval (seconds)","monitor.timeout":"Request timeout (seconds)",
+"monitor.first":"Notify on first baseline","monitor.firstNo":"No — save the baseline quietly","monitor.firstYes":"Yes — send a message",
+"monitor.errors":"Notify on fetch errors","monitor.assets":"Include script and link URLs","monitor.assetsYes":"Yes — detect new bundles","monitor.assetsNo":"No — page text only",
+"monitor.tokenEnv":"PushPlus token environment variable","monitor.tokenHint":"Enter the variable name only. Set the real token on the server.",
+"monitor.titleTemplate":"Message title template","monitor.titleHint":"Supports site, id, url, fingerprint and time placeholders.",
+"monitor.check":"Check now","monitor.test":"Send test notification","monitor.checking":"Checking the original page…","monitor.checked":"Check complete.","monitor.failed":"Monitor request failed: {message}",
+"payment.title":"Payment automation","payment.summary":"Capture checkout responses and queue payment tasks",
+"payment.hint":"Optional. The proxy can watch the original checkout response, save the order, and hand the QR code or pay URL to a phone agent. It never types a payment password or presses the final pay button.",
+"payment.enabled":"Payment switch","payment.adapter":"Response adapter","payment.adapterGeneric":"Generic JSON","payment.adapterXp":"XPAY / cashier","payment.adapterVmq":"VMQ",
+"payment.capture":"Browser response capture","payment.pattern":"Capture URL pattern","payment.patternHint":"Matches the upstream path without the proxy prefix. The hook only reads JSON responses.",
+"payment.execution":"Default execution","payment.execQr":"Show QR in the admin page","payment.execDevice":"Open QR on a phone agent","payment.execBrowser":"Browser assist","payment.execApi":"API call","payment.execNotify":"Wait for a payment notification",
+"payment.fieldHint":"Field mapping: where each value lives in the captured JSON. Dotted paths are allowed, for example data.out_trade_no.",
+"payment.orderRef":"Order reference field","payment.amount":"Amount field","payment.qr":"QR content or pay URL field","payment.expires":"Expiry field","payment.channel":"Channel field","payment.currency":"Currency field",
+"payment.approval":"Require user approval","payment.approvalYes":"Yes — wait for an administrator","payment.approvalNo":"No — create and queue",
+"payment.autoDispatch":"Dispatch automatically","payment.autoYes":"Yes — queue for the phone agent","payment.deviceId":"Phone agent device ID",
+"payment.deviceTokenEnv":"Device token environment variable","payment.deviceTokenHint":"Enter the variable name only. Set the real token on the server.",
+"payment.refresh":"Load recent intents","payment.loading":"Loading recent payment tasks…","payment.loaded":"Recent payment tasks loaded.","payment.failed":"Payment request failed: {message}","payment.none":"No payment intents yet."
 },
 zh: {
 "title":"代理管理后台",
@@ -270,7 +372,29 @@ zh: {
 "err.credentials":"用户名或密码不正确，请检查后重试。","err.unauthorized":"尚未登录或登录已过期，请重新登录。",
 "err.adminUsername":"管理员用户名应为 1–64 位字母、数字、点、下划线、@ 或连字符。","err.adminPassword":"新密码至少需要 12 个字符。",
 "help.back":"返回站点","help.topics":"说明目录",
-"help.eyebrow":"帮助","help.title":"配置指南","help.refresh":"刷新"
+"help.eyebrow":"帮助","help.title":"配置指南","help.refresh":"刷新",
+"badge.monitorOn":"监控中","badge.paymentOn":"支付中",
+"monitor.title":"原站监控","monitor.summary":"监控原站页面，有变化就推送通知",
+"monitor.hint":"服务器按间隔抓取这个路径并比较指纹，发现变化就通过 PushPlus 推送。它不会登录、付款或修改原站。",
+"monitor.enabled":"监控开关","monitor.path":"监控路径","monitor.pathHint":"原站路径，例如 /purchase。不要包含代理前缀。",
+"monitor.mode":"指纹模式","monitor.modeAuto":"自动 — 标题、meta、脚本和链接","monitor.modeRegex":"正则 — 只比较匹配到的文本","monitor.modeHash":"哈希 — 整个 HTML",
+"monitor.pattern":"正则表达式（仅正则模式）","monitor.interval":"检查间隔（秒）","monitor.timeout":"请求超时（秒）",
+"monitor.first":"首次建立基线时通知","monitor.firstNo":"否 — 静默保存基线","monitor.firstYes":"是 — 发送一条消息",
+"monitor.errors":"抓取失败时通知","monitor.assets":"包含脚本和样式链接","monitor.assetsYes":"是 — 能发现新的前端包","monitor.assetsNo":"否 — 只看页面文本",
+"monitor.tokenEnv":"PushPlus Token 环境变量","monitor.tokenHint":"这里只填变量名，真实 Token 配在服务器上。",
+"monitor.titleTemplate":"消息标题模板","monitor.titleHint":"支持 site、id、url、fingerprint、time 占位符。",
+"monitor.check":"立即检查","monitor.test":"发送测试通知","monitor.checking":"正在检查原站页面…","monitor.checked":"检查完成。","monitor.failed":"监控请求失败：{message}",
+"payment.title":"支付自动化","payment.summary":"捕获下单响应并生成支付任务",
+"payment.hint":"可选。代理可以监听原站的下单响应，保存订单，并把二维码或支付链接交给手机助手。它不会输入支付密码，也不会点最终付款按钮。",
+"payment.enabled":"支付功能开关","payment.adapter":"响应适配器","payment.adapterGeneric":"通用 JSON","payment.adapterXp":"XPAY / 收银台","payment.adapterVmq":"VMQ",
+"payment.capture":"浏览器响应捕获","payment.pattern":"捕获 URL 规则","payment.patternHint":"匹配不带代理前缀的原站路径。钩子只读取 JSON 响应。",
+"payment.execution":"默认执行方式","payment.execQr":"在后台显示二维码","payment.execDevice":"交给手机助手打开","payment.execBrowser":"浏览器辅助","payment.execApi":"调用接口","payment.execNotify":"等待到账通知",
+"payment.fieldHint":"字段映射：告诉系统每个值在返回 JSON 的哪里。支持点号路径，例如 data.out_trade_no。",
+"payment.orderRef":"订单号字段","payment.amount":"金额字段","payment.qr":"二维码内容或支付链接字段","payment.expires":"过期时间字段","payment.channel":"支付渠道字段","payment.currency":"币种字段",
+"payment.approval":"需要人工确认","payment.approvalYes":"是 — 等管理员确认","payment.approvalNo":"否 — 直接创建并排队",
+"payment.autoDispatch":"自动派发","payment.autoYes":"是 — 排队给手机助手","payment.deviceId":"手机助手设备 ID",
+"payment.deviceTokenEnv":"设备 Token 环境变量","payment.deviceTokenHint":"这里只填变量名，真实 Token 配在服务器上。",
+"payment.refresh":"读取最近支付任务","payment.loading":"正在读取最近支付任务…","payment.loaded":"最近支付任务已读取。","payment.failed":"支付请求失败：{message}","payment.none":"还没有支付任务。"
 }
 };
 let LANG = localStorage.getItem('proxyAdminLang') || ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
@@ -305,6 +429,13 @@ const PLACEHOLDERS = {
 };
 const HELP = {
 en: [
+  { h: "Original-site monitor and payment capture", items: [
+    "<b>Monitor example:</b> Edit site → Original-site monitor. Set the monitored path to <code>/purchase</code>, keep Auto mode, check every 300 seconds, and save. The first check stores a baseline quietly. When the title, meta tags, script URLs or link URLs change, the server sends one PushPlus message.",
+    "<b>PushPlus setup:</b> create a token at pushplus.plus, then put it in the server environment variable named in the form (default <code>IH_PUSHPLUS_TOKEN</code>). The form only stores the variable name. Use Send test notification after saving; it checks the saved settings, not unsaved edits.",
+    "<b>Payment example:</b> for 8888ok, set the capture URL to <code>^/api/v1/payment/orders(?:[?#]|$)</code>, choose XPAY / cashier, and map the order reference to <code>out_trade_no</code> and the amount to <code>pay_amount</code>. The proxy records the order when the original page creates it.",
+    "<b>What happens next:</b> the order becomes a payment intent. Review it with Load recent intents, then show the QR, send it to a phone agent, or wait for a payment notification. The system never types a payment password or presses the final pay button.",
+    "<b>Phone agent:</b> the agent polls <code>/__ih/payment/device/next</code> with the device token from the configured environment variable, opens the QR or pay URL, and reports back to <code>/__ih/payment/device/result</code>. Keep the token server-side; never put it in a page or document."
+  ]},
   { h: "VMQ callback to a custom JS template", items: [
     "Open External callbacks → VMQ checkout. Select the site, enter a unique order reference and amount, and choose a payment method. Share checkoutUrl with the customer or use qrImageUrl to display the QR code. Use amountDue as the amount to pay. For example, an order for ¥10 may show ¥10.01 so VMQ can identify the payment.",
     "Publish a template, edit the site, select the published template, enable Receive signed callbacks and VMQ callback adapter. Enable automatic backend steps only when the script is ready. Store the VMQ communication key server-side under IH_CALLBACK_VMQ_KEY; the form contains only the environment variable name. Check saved settings to obtain /__ih/callback/vmq/SITE_ID, and put the complete HTTPS URL in VMQ's callback address. An order-specific VMQ URL overrides its global default.",
@@ -416,6 +547,13 @@ en: [
   ]}
 ],
 zh: [
+  { h: "原站监控与支付捕获", items: [
+    "<b>监控示例：</b>编辑站点 → 原站监控。监控路径填 <code>/purchase</code>，指纹模式选自动，间隔 300 秒，然后保存。第一次检查只静默保存基线；之后标题、meta、脚本地址或样式地址发生变化时，服务器会发一条 PushPlus 消息。",
+    "<b>PushPlus 配置：</b>先在 pushplus.plus 申请 Token，再把它写进表单里填的服务器环境变量（默认 <code>IH_PUSHPLUS_TOKEN</code>）。表单只保存变量名。保存后点“发送测试通知”，测试的是已保存的配置，不是还没保存的修改。",
+    "<b>支付示例：</b>以 8888ok 为例，捕获 URL 填 <code>^/api/v1/payment/orders(?:[?#]|$)</code>，适配器选 XPAY / 收银台，订单号字段填 <code>out_trade_no</code>，金额字段填 <code>pay_amount</code>。原站下单时，代理会记录这笔订单。",
+    "<b>接下来：</b>订单会变成一条支付任务。可以在“读取最近支付任务”里查看，然后显示二维码、交给手机助手，或等待到账通知。系统不会输入支付密码，也不会点最终付款按钮。",
+    "<b>手机助手：</b>助手带上配置环境变量里的设备 Token，轮询 <code>/__ih/payment/device/next</code> 领取任务，打开二维码或支付链接，再把结果回报到 <code>/__ih/payment/device/result</code>。Token 只放服务器，不要写进页面或文档。"
+  ]},
   { h: "VMQ 回调接到自定义 JS：一步步配置", items: [
     "打开「外部回调 → VMQ 收银台」，选择站点，填写唯一业务订单号、金额和支付方式。把 checkoutUrl 发给顾客，或用 qrImageUrl 展示付款二维码。顾客按 amountDue 付款。例如下单 10 元时，VMQ 可能显示 10.01 元，以便区分不同订单。",
     "先在“外部回调”保存并发布模板。编辑站点，选择模板，打开“接收签名回调”和“VMQ 回调适配”。脚本准备好才开启自动执行。服务端 IH_CALLBACK_VMQ_KEY 的值与 VMQ 通信密钥一致；界面只填变量名，不填秘密。保存并检查配置，复制显示的 /__ih/callback/vmq/站点ID，前面加本站 HTTPS 域名，填入 VMQ 的回调地址。旧订单自己带回调地址时会覆盖默认地址。",
@@ -711,6 +849,151 @@ function collectCaptchaForm() {
   if (!Number.isInteger(result_ttl_seconds) || result_ttl_seconds < 30 || result_ttl_seconds > 240) throw new Error(t('captcha.invalidTtl'));
   return { enabled, provider: $('siteCaptchaProvider').value, api_key_env, site_key, page_path, timeout_seconds, max_tasks_per_hour, mode, result_ttl_seconds, response_selector, response_field_name, callback_path, waiting_message: waiting_message.trim(), ready_message: ready_message.trim(), ...extraMessages };
 }
+const PAYMENT_FIELD_DEFAULTS = {
+  generic: { order_ref: 'order_ref', amount: 'amount', qr_content: 'qr_content', expires_at: 'expires_at', channel: 'channel', currency: 'currency' },
+  xp_pay: { order_ref: 'out_trade_no', amount: 'pay_amount', qr_content: 'pay_url', expires_at: 'expires_at', channel: 'payment_type', currency: 'currency' },
+  vmq: { order_ref: 'orderId', amount: 'reallyPrice', qr_content: 'payUrl', expires_at: 'expiresAt', channel: 'type', currency: 'currency' }
+};
+function loadMonitorForm(config = {}) {
+  $('siteMonitorEnabled').value = String(config.enabled === true);
+  $('siteMonitorPath').value = config.path || '/';
+  $('siteMonitorMode').value = config.mode || 'auto';
+  $('siteMonitorPattern').value = config.pattern || '';
+  $('siteMonitorInterval').value = config.interval_seconds || 300;
+  $('siteMonitorTimeout').value = config.timeout_seconds || 15;
+  $('siteMonitorFirst').value = String(config.notify_on_first_run === true);
+  $('siteMonitorErrors').value = String(config.notify_on_error === true);
+  $('siteMonitorAssets').value = String(config.include_assets !== false);
+  $('siteMonitorTokenEnv').value = config.pushplus_token_env || 'IH_PUSHPLUS_TOKEN';
+  $('siteMonitorTitle').value = config.title_template || 'Original site changed: {site}';
+  status('siteMonitorStatus', '');
+  const box = $('siteMonitorLast');
+  box.textContent = '';
+  box.classList.add('hidden');
+}
+function collectMonitorForm() {
+  const path = $('siteMonitorPath').value.trim() || '/';
+  const mode = $('siteMonitorMode').value;
+  const pattern = $('siteMonitorPattern').value.trim();
+  const interval = Number($('siteMonitorInterval').value);
+  const timeout = Number($('siteMonitorTimeout').value);
+  const tokenEnv = $('siteMonitorTokenEnv').value.trim();
+  if (!path.startsWith('/') || path.startsWith('//')) throw new Error(t('monitor.pathHint'));
+  if (!['auto', 'regex', 'hash'].includes(mode)) throw new Error(t('monitor.mode'));
+  if (mode === 'regex' && !pattern) throw new Error(t('monitor.pattern'));
+  if (pattern) { try { new RegExp(pattern); } catch (e) { throw new Error(t('monitor.failed', { message: e.message })); } }
+  if (!Number.isInteger(interval) || interval < 30 || interval > 86400) throw new Error(t('monitor.interval'));
+  if (!Number.isInteger(timeout) || timeout < 5 || timeout > 60) throw new Error(t('monitor.timeout'));
+  if (!/^[A-Z][A-Z0-9_]{0,79}$/.test(tokenEnv)) throw new Error(t('monitor.tokenHint'));
+  return {
+    enabled: $('siteMonitorEnabled').value === 'true', path, mode, pattern,
+    interval_seconds: interval, timeout_seconds: timeout,
+    notify_on_first_run: $('siteMonitorFirst').value === 'true',
+    notify_on_error: $('siteMonitorErrors').value === 'true',
+    include_assets: $('siteMonitorAssets').value !== 'false',
+    pushplus_token_env: tokenEnv,
+    title_template: $('siteMonitorTitle').value.trim().slice(0, 120)
+  };
+}
+async function checkMonitorNow() {
+  if (!state.editingSiteId) return status('siteMonitorStatus', t('captcha.saveFirst'));
+  status('siteMonitorStatus', t('monitor.checking'));
+  try {
+    const { data } = await api('/api/sites/' + encodeURIComponent(state.editingSiteId) + '/monitor/check', { method: 'POST' });
+    status('siteMonitorStatus', t('monitor.checked'));
+    const box = $('siteMonitorLast');
+    box.textContent = JSON.stringify(data, null, 2);
+    box.classList.remove('hidden');
+  } catch (e) { status('siteMonitorStatus', t('monitor.failed', { message: e.message }), true); }
+}
+async function testMonitorNotify() {
+  if (!state.editingSiteId) return status('siteMonitorStatus', t('captcha.saveFirst'));
+  status('siteMonitorStatus', t('monitor.checking'));
+  try {
+    await api('/api/sites/' + encodeURIComponent(state.editingSiteId) + '/monitor/test-notify', { method: 'POST' });
+    status('siteMonitorStatus', t('monitor.checked'));
+  } catch (e) { status('siteMonitorStatus', t('monitor.failed', { message: e.message }), true); }
+}
+function loadPaymentForm(config = {}) {
+  const adapter = config.adapter || 'generic';
+  const defaults = PAYMENT_FIELD_DEFAULTS[adapter] || PAYMENT_FIELD_DEFAULTS.generic;
+  const map = { ...defaults, ...(config.field_map || {}) };
+  $('sitePaymentEnabled').value = String(config.enabled === true);
+  $('sitePaymentAdapter').value = adapter;
+  $('sitePaymentCapture').value = String(config.capture_enabled === true);
+  $('sitePaymentPattern').value = config.capture_url_pattern || '^/api/v1/payment/orders(?:[?#]|$)';
+  $('sitePaymentMatchMode').value = config.capture_match_mode || 'regex';
+  $('sitePaymentExecution').value = config.default_execution || 'qr_display';
+  $('sitePaymentOrderRef').value = map.order_ref || '';
+  $('sitePaymentAmount').value = map.amount || '';
+  $('sitePaymentQr').value = map.qr_content || '';
+  $('sitePaymentExpires').value = map.expires_at || '';
+  $('sitePaymentChannel').value = map.channel || '';
+  $('sitePaymentCurrency').value = map.currency || '';
+  $('sitePaymentApproval').value = String(config.require_user_approval !== false);
+  $('sitePaymentAutoDispatch').value = String(config.auto_dispatch === true);
+  $('sitePaymentDeviceId').value = config.device_id || '';
+  $('sitePaymentDeviceTokenEnv').value = config.device_token_env || 'IH_DEVICE_AGENT_TOKEN';
+  status('sitePaymentStatus', '');
+  const box = $('sitePaymentLast');
+  box.textContent = '';
+  box.classList.add('hidden');
+}
+function applyPaymentAdapterDefaults() {
+  const adapter = $('sitePaymentAdapter').value;
+  const defaults = PAYMENT_FIELD_DEFAULTS[adapter] || PAYMENT_FIELD_DEFAULTS.generic;
+  const known = new Set(Object.values(PAYMENT_FIELD_DEFAULTS).flatMap(item => Object.values(item)));
+  const pairs = [['sitePaymentOrderRef', 'order_ref'], ['sitePaymentAmount', 'amount'], ['sitePaymentQr', 'qr_content'], ['sitePaymentExpires', 'expires_at'], ['sitePaymentChannel', 'channel'], ['sitePaymentCurrency', 'currency']];
+  for (const [id, key] of pairs) {
+    const current = $(id).value.trim();
+    if (!current || known.has(current)) $(id).value = defaults[key] || '';
+  }
+}
+function collectPaymentForm() {
+  const pattern = $('sitePaymentPattern').value.trim();
+  const matchMode = $('sitePaymentMatchMode').value;
+  const tokenEnv = $('sitePaymentDeviceTokenEnv').value.trim();
+  const deviceId = $('sitePaymentDeviceId').value.trim();
+  if (!pattern) throw new Error(t('payment.pattern'));
+  if (pattern.length > 500) throw new Error(t('payment.pattern'));
+  if (matchMode === 'regex') { try { new RegExp(pattern); } catch (e) { throw new Error(t('payment.failed', { message: e.message })); } }
+  if (!/^[A-Z][A-Z0-9_]{0,79}$/.test(tokenEnv)) throw new Error(t('payment.deviceTokenHint'));
+  if (deviceId && !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(deviceId)) throw new Error(t('payment.deviceId'));
+  const fieldMap = {
+    order_ref: $('sitePaymentOrderRef').value.trim(),
+    amount: $('sitePaymentAmount').value.trim(),
+    qr_content: $('sitePaymentQr').value.trim(),
+    expires_at: $('sitePaymentExpires').value.trim(),
+    channel: $('sitePaymentChannel').value.trim(),
+    currency: $('sitePaymentCurrency').value.trim()
+  };
+  if (!fieldMap.order_ref || !fieldMap.amount) throw new Error(t('payment.orderRef'));
+  return {
+    enabled: $('sitePaymentEnabled').value === 'true',
+    adapter: $('sitePaymentAdapter').value,
+    capture_enabled: $('sitePaymentCapture').value === 'true',
+    capture_url_pattern: pattern,
+    capture_match_mode: matchMode,
+    field_map: fieldMap,
+    require_user_approval: $('sitePaymentApproval').value !== 'false',
+    auto_dispatch: $('sitePaymentAutoDispatch').value === 'true',
+    default_execution: $('sitePaymentExecution').value,
+    device_id: deviceId,
+    device_token_env: tokenEnv
+  };
+}
+async function loadPaymentRecent() {
+  if (!state.editingSiteId) return status('sitePaymentStatus', t('captcha.saveFirst'));
+  status('sitePaymentStatus', t('payment.loading'));
+  try {
+    const data = await api('/api/payments?site_id=' + encodeURIComponent(state.editingSiteId) + '&limit=5');
+    status('sitePaymentStatus', t('payment.loaded'));
+    const box = $('sitePaymentLast');
+    const intents = data.intents || [];
+    box.textContent = intents.length ? JSON.stringify({ summary: data.summary, intents }, null, 2) : t('payment.none');
+    box.classList.remove('hidden');
+  } catch (e) { status('sitePaymentStatus', t('payment.failed', { message: e.message }), true); }
+}
 async function checkCaptchaStatus() {
   if (!state.editingSiteId) return status('captchaConfigStatus', t('captcha.saveFirst'));
   try {
@@ -755,7 +1038,7 @@ function token(){return sessionStorage.getItem(TOKEN_KEY)||''} function status(i
 async function api(path,options={}){let response;try{response=await fetch(ADMIN_BASE+path,{...options,headers:{'Content-Type':'application/json',...(token()?{Authorization:'Bearer '+token()}:{...{}}),...(options.headers||{})}})}catch(error){throw new Error(t('err.network',{error:error.message}))}const data=await response.json().catch(()=>({message:t('err.unexpectedHttp',{status:response.status})}));if(!response.ok)throw new Error(localizeError(data.message||t('err.requestFailed',{status:response.status})));return data}
 function showModal(id,visible){$(id).classList.toggle('hidden',!visible)} function selected(){return state.sites.find(site=>site.id===state.selectedSiteId)||state.sites[0]}
 function refreshSelectors(){for(const id of ['analyticsSite','auditSite']){$(id).innerHTML=(state.sites.length?'':`<option value="">${esc(t('analytics.select'))}</option>`)+state.sites.map(site=>`<option value="${esc(site.id)}">${esc(site.name)} (${esc(site.proxy_prefix||'/')})</option>`).join('');$(id).value=state.selectedSiteId}}
-function renderSites(){const grid=$('siteGrid');if(!state.sites.length){grid.innerHTML=`<p class="muted">${esc(t('sites.none'))}</p>`;return}grid.innerHTML=state.sites.map(site=>`<article class="site-card"><div class="actions"><h3>${esc(site.name)}</h3><span class="badge ${site.enabled?'':'off'}">${esc(t(site.enabled?'badge.enabled':'badge.disabled'))}</span>${site.audit_probe?.enabled?`<span class="badge audit">${esc(t('badge.auditOn'))}</span>`:''}${site.intercept?.enabled?`<span class="badge intercept">${esc(t('badge.interceptOn'))}</span>`:''}${site.value_rules_enabled!==false&&(site.response_rules||[]).some(rule=>rule.enabled)?`<span class="badge response">${esc(t('badge.responseOn'))}</span>`:''}</div><p class="muted">${esc(site.target_url)}<br>${esc(t('common.prefix'))} <code>${esc(site.proxy_prefix||'/')}</code></p><div class="actions"><button data-edit="${esc(site.id)}">${esc(t('common.edit'))}</button><button class="secondary" data-analytics="${esc(site.id)}">${esc(t('common.analytics'))}</button><button class="secondary" data-audit="${esc(site.id)}">${esc(t('common.auditLogs'))}</button><button class="danger" data-delete="${esc(site.id)}">${esc(t('common.delete'))}</button></div></article>`).join('');grid.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openSite(b.dataset.edit));grid.querySelectorAll('[data-analytics]').forEach(b=>{b.onclick=()=>{state.selectedSiteId=b.dataset.analytics;switchTab('analytics')}});grid.querySelectorAll('[data-audit]').forEach(b=>{b.onclick=()=>{state.selectedSiteId=b.dataset.audit;switchTab('audit')}});grid.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>deleteSite(b.dataset.delete))}
+function renderSites(){const grid=$('siteGrid');if(!state.sites.length){grid.innerHTML=`<p class="muted">${esc(t('sites.none'))}</p>`;return}grid.innerHTML=state.sites.map(site=>`<article class="site-card"><div class="actions"><h3>${esc(site.name)}</h3><span class="badge ${site.enabled?'':'off'}">${esc(t(site.enabled?'badge.enabled':'badge.disabled'))}</span>${site.audit_probe?.enabled?`<span class="badge audit">${esc(t('badge.auditOn'))}</span>`:''}${site.intercept?.enabled?`<span class="badge intercept">${esc(t('badge.interceptOn'))}</span>`:''}${site.value_rules_enabled!==false&&(site.response_rules||[]).some(rule=>rule.enabled)?`<span class="badge response">${esc(t('badge.responseOn'))}</span>`:''}${site.monitor?.enabled?`<span class="badge audit">${esc(t('badge.monitorOn'))}</span>`:''}${site.payment?.enabled?`<span class="badge intercept">${esc(t('badge.paymentOn'))}</span>`:''}</div><p class="muted">${esc(site.target_url)}<br>${esc(t('common.prefix'))} <code>${esc(site.proxy_prefix||'/')}</code></p><div class="actions"><button data-edit="${esc(site.id)}">${esc(t('common.edit'))}</button><button class="secondary" data-analytics="${esc(site.id)}">${esc(t('common.analytics'))}</button><button class="secondary" data-audit="${esc(site.id)}">${esc(t('common.auditLogs'))}</button><button class="danger" data-delete="${esc(site.id)}">${esc(t('common.delete'))}</button></div></article>`).join('');grid.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openSite(b.dataset.edit));grid.querySelectorAll('[data-analytics]').forEach(b=>{b.onclick=()=>{state.selectedSiteId=b.dataset.analytics;switchTab('analytics')}});grid.querySelectorAll('[data-audit]').forEach(b=>{b.onclick=()=>{state.selectedSiteId=b.dataset.audit;switchTab('audit')}});grid.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>deleteSite(b.dataset.delete))}
 async function loadSites(){const data=await api('/api/sites');state.sites=data.sites||[];if(!state.sites.some(s=>s.id===state.selectedSiteId))state.selectedSiteId=state.sites[0]?.id||'';renderSites();refreshSelectors()}
 function switchTab(tab){['sites','analytics','audit','callbacks','help'].forEach(name=>{$(name+'View').classList.toggle('hidden',name!==tab);document.querySelector(`[data-tab="${name}"]`).classList.toggle('active',name===tab)});refreshSelectors();if(tab==='analytics')loadAnalytics();if(tab==='audit')loadAudit();if(tab==='help')renderHelp();if(tab==='callbacks'&&typeof loadCallbacks==='function')loadCallbacks()}
 function ruleCard(rule={},index=0){const card=document.createElement('article');card.className='rule-card';card.innerHTML=`<div class="rule-head"><span class="rule-number">${esc(t('rule.n',{n:index+1}))}</span><button type="button" class="danger" data-remove-rule>${esc(t('common.remove'))}</button></div><div class="row"><label class="field">${esc(t('rule.find'))}<textarea data-rule-pattern placeholder="${esc(t('rule.findPlaceholder'))}"></textarea><span class="hint">${esc(t('rule.findHint'))}</span></label><label class="field">${esc(t('rule.replace'))}<textarea data-rule-replacement placeholder="${esc(t('rule.replacePlaceholder'))}"></textarea><span class="hint">${esc(t('rule.replaceHint'))}</span></label></div><div class="row"><label class="field">${esc(t('rule.mode'))}<select data-rule-mode><option value="literal">${esc(t('rule.literal'))}</option><option value="regex">${esc(t('rule.regex'))}</option></select></label><label class="field">${esc(t('rule.comment'))}<input data-rule-comment placeholder="${esc(t('rule.commentPlaceholder'))}"></label></div>`;card.querySelector('[data-rule-pattern]').value=rule.pattern||'';card.querySelector('[data-rule-replacement]').value=typeof rule.replacement==='string'?rule.replacement:'';card.querySelector('[data-rule-mode]').value=rule.mode==='regex'?'regex':'literal';card.querySelector('[data-rule-comment]').value=rule.comment||'';card.querySelector('[data-remove-rule]').onclick=()=>{card.remove();renumberRules()};return card}
@@ -775,8 +1058,8 @@ const body = typeof request.body === "string" ? request.body : "";
 const type = /"payment_type" *: *"wechat"/i.test(body) ? "1" : "2";
 return "https://hacket.top/__ih/vmq/checkout/" + encodeURIComponent(site.id) + "?pay_id=" + encodeURIComponent(trade) + "&price=" + encodeURIComponent(money) + "&type=" + type;`,timeout_ms:1000});status('siteSaveStatus',t('response.vmqCheckoutAdded'))}
 function collectResponseRules(){return [...$('responseRuleList').querySelectorAll('.rule-card')].map((card,index)=>{const enabled=card.querySelector('[data-response-enabled]').value==='true';const url_pattern=card.querySelector('[data-response-pattern]').value.trim();const match_mode=card.querySelector('[data-response-mode]').value;const direction=card.querySelector('[data-response-direction]').value;const target=card.querySelector('[data-response-target]').value;const key=card.querySelector('[data-response-key]').value.trim();const code=card.querySelector('[data-response-code]').value;const timeout_ms=Number(card.querySelector('[data-response-timeout]').value)||1000;if(enabled&&!url_pattern)throw new Error(t('response.required',{n:index+1}));if(enabled&&!key)throw new Error(t('response.keyRequired',{n:index+1}));if(enabled&&!code.trim())throw new Error(t('response.codeRequired',{n:index+1}));if(enabled&&match_mode==='regex'){try{new RegExp(url_pattern)}catch(e){throw new Error(t('response.invalidRegex',{n:index+1,error:e.message}))}}if(enabled&&target==='text'){try{new RegExp(key)}catch(e){throw new Error(t('response.invalidTextRegex',{n:index+1,error:e.message}))}}return {enabled,direction,url_pattern,match_mode,target,key,code,timeout_ms}})}
-function openSite(id=''){clearSiteValidation();state.editingSiteId=id;const site=state.sites.find(s=>s.id===id)||{id:'',name:'',target_url:'',proxy_prefix:'/',enabled:true,audit_probe:{enabled:false},rewrite_request_headers:true,oauth_bypass_paths:[],replace_rules:[]};$('siteModalTitle').textContent=id?t('site.editTitle'):t('site.addTitle');$('siteId').value=site.id;$('siteId').disabled=!!id;$('siteName').value=site.name;$('siteTargetUrl').value=site.target_url;$('sitePrefix').value=(site.proxy_prefix===''||site.proxy_prefix==null)?'/':site.proxy_prefix;$('siteEnabled').value=String(site.enabled!==false);$('siteAudit').value=String(site.audit_probe?.enabled===true);$('siteDebugEnabled').value=String(site.debug_enabled===true);$('siteValueRulesEnabled').value=String(site.value_rules_enabled!==false);$('siteRewriteHeaders').value=String(site.rewrite_request_headers!==false);$('siteOauth').value=(site.oauth_bypass_paths||[]).join('\n');loadCallbackForm(site.external_callback||{});loadApiProxyForm(site.api_proxy||{});loadCaptchaForm(site.captcha||{});const intercept=site.intercept||{};$('siteInterceptEnabled').value=String(intercept.enabled===true);$('siteInterceptPattern').value=intercept.url_pattern||'';$('siteInterceptMode').value=intercept.match_mode==='literal'?'literal':'regex';$('siteInterceptStatus').value=intercept.status||200;$('siteInterceptContentType').value=intercept.content_type||'application/json; charset=utf-8';$('siteInterceptTimeout').value=intercept.timeout_ms||1000;$('siteInterceptCode').value=intercept.code||'';renderRuleEditor(site.replace_rules||[]);renderResponseRuleEditor(site.response_rules||[]);status('siteSaveStatus','');showModal('siteModal',true)}
-async function saveSite(){try{validateSiteForm();const payload={id:$('siteId').value.trim(),name:$('siteName').value.trim(),target_url:$('siteTargetUrl').value.trim(),proxy_prefix:(()=>{const p=$('sitePrefix').value.trim(); return (!p||p==='/')?'':p;})(),enabled:$('siteEnabled').value==='true',debug_enabled:$('siteDebugEnabled').value==='true',value_rules_enabled:$('siteValueRulesEnabled').value!=='false',audit_probe:{enabled:$('siteAudit').value==='true'},rewrite_request_headers:$('siteRewriteHeaders').value==='true',oauth_bypass_paths:$('siteOauth').value.split('\n').map(v=>v.trim()).filter(Boolean),replace_rules:collectRules(),response_rules:collectResponseRules(),external_callback:collectCallbackForm(),api_proxy:collectApiProxyForm(),captcha:collectCaptchaForm(),intercept:{enabled:$('siteInterceptEnabled').value==='true',url_pattern:$('siteInterceptPattern').value.trim(),match_mode:$('siteInterceptMode').value,status:Number($('siteInterceptStatus').value)||200,content_type:$('siteInterceptContentType').value.trim(),timeout_ms:Number($('siteInterceptTimeout').value)||1000,code:$('siteInterceptCode').value}};if(state.editingSiteId)await api('/api/sites/'+encodeURIComponent(state.editingSiteId),{method:'PUT',body:JSON.stringify(payload)});else await api('/api/sites',{method:'POST',body:JSON.stringify(payload)});await loadSites();showModal('siteModal',false)}catch(e){status('siteSaveStatus',e.message,true)}}
+function openSite(id=''){clearSiteValidation();state.editingSiteId=id;const site=state.sites.find(s=>s.id===id)||{id:'',name:'',target_url:'',proxy_prefix:'/',enabled:true,audit_probe:{enabled:false},rewrite_request_headers:true,oauth_bypass_paths:[],replace_rules:[]};$('siteModalTitle').textContent=id?t('site.editTitle'):t('site.addTitle');$('siteId').value=site.id;$('siteId').disabled=!!id;$('siteName').value=site.name;$('siteTargetUrl').value=site.target_url;$('sitePrefix').value=(site.proxy_prefix===''||site.proxy_prefix==null)?'/':site.proxy_prefix;$('siteEnabled').value=String(site.enabled!==false);$('siteAudit').value=String(site.audit_probe?.enabled===true);$('siteDebugEnabled').value=String(site.debug_enabled===true);$('siteValueRulesEnabled').value=String(site.value_rules_enabled!==false);$('siteRewriteHeaders').value=String(site.rewrite_request_headers!==false);$('siteOauth').value=(site.oauth_bypass_paths||[]).join('\n');loadCallbackForm(site.external_callback||{});loadApiProxyForm(site.api_proxy||{});loadCaptchaForm(site.captcha||{});loadMonitorForm(site.monitor||{});loadPaymentForm(site.payment||{});const intercept=site.intercept||{};$('siteInterceptEnabled').value=String(intercept.enabled===true);$('siteInterceptPattern').value=intercept.url_pattern||'';$('siteInterceptMode').value=intercept.match_mode==='literal'?'literal':'regex';$('siteInterceptStatus').value=intercept.status||200;$('siteInterceptContentType').value=intercept.content_type||'application/json; charset=utf-8';$('siteInterceptTimeout').value=intercept.timeout_ms||1000;$('siteInterceptCode').value=intercept.code||'';renderRuleEditor(site.replace_rules||[]);renderResponseRuleEditor(site.response_rules||[]);status('siteSaveStatus','');showModal('siteModal',true)}
+async function saveSite(){try{validateSiteForm();const payload={id:$('siteId').value.trim(),name:$('siteName').value.trim(),target_url:$('siteTargetUrl').value.trim(),proxy_prefix:(()=>{const p=$('sitePrefix').value.trim(); return (!p||p==='/')?'':p;})(),enabled:$('siteEnabled').value==='true',debug_enabled:$('siteDebugEnabled').value==='true',value_rules_enabled:$('siteValueRulesEnabled').value!=='false',audit_probe:{enabled:$('siteAudit').value==='true'},rewrite_request_headers:$('siteRewriteHeaders').value==='true',oauth_bypass_paths:$('siteOauth').value.split('\n').map(v=>v.trim()).filter(Boolean),replace_rules:collectRules(),response_rules:collectResponseRules(),external_callback:collectCallbackForm(),api_proxy:collectApiProxyForm(),captcha:collectCaptchaForm(),monitor:collectMonitorForm(),payment:collectPaymentForm(),intercept:{enabled:$('siteInterceptEnabled').value==='true',url_pattern:$('siteInterceptPattern').value.trim(),match_mode:$('siteInterceptMode').value,status:Number($('siteInterceptStatus').value)||200,content_type:$('siteInterceptContentType').value.trim(),timeout_ms:Number($('siteInterceptTimeout').value)||1000,code:$('siteInterceptCode').value}};if(state.editingSiteId)await api('/api/sites/'+encodeURIComponent(state.editingSiteId),{method:'PUT',body:JSON.stringify(payload)});else await api('/api/sites',{method:'POST',body:JSON.stringify(payload)});await loadSites();showModal('siteModal',false)}catch(e){status('siteSaveStatus',e.message,true)}}
 async function deleteSite(id){const site=state.sites.find(s=>s.id===id);if(!confirm(t('confirm.deleteSite',{name:site?.name||id})))return;try{await api('/api/sites/'+encodeURIComponent(id),{method:'DELETE'});await loadSites()}catch(e){status('siteStatus',e.message,true)}}
 async function loadGlobal(){try{const data=await api('/api/global-settings');$('globalLanguage').value=LANG;$('globalUsername').value=data.settings.admin_username;$('globalPassword').value='';$('globalAuditBytes').value=data.settings.audit_max_body_bytes;status('globalStatus','');showModal('globalModal',true)}catch(e){alert(e.message)}}
 async function saveGlobal(){try{await api('/api/global-settings',{method:'PUT',body:JSON.stringify({admin_username:$('globalUsername').value.trim(),admin_password:$('globalPassword').value,audit_max_body_bytes:Number($('globalAuditBytes').value)})});status('globalStatus',t('global.saved'));$('globalPassword').value=''}catch(e){status('globalStatus',e.message,true)}}
@@ -787,7 +1070,7 @@ async function showAuditDetail(id){const site=selected();try{const record=(await
 async function deleteAudit(id){const site=selected();if(!confirm(t('confirm.deleteAudit')))return;try{await api(`/api/sites/${encodeURIComponent(site.id)}/audit-logs/${encodeURIComponent(id)}`,{method:'DELETE'});loadAudit()}catch(e){status('auditStatus',e.message,true)}}
 async function clearAudit(){const site=selected();const expected='CLEAR '+site.id;if(prompt(t('confirm.clearAudit',{name:site.name,expected}))!==expected)return;try{const result=await api(`/api/sites/${encodeURIComponent(site.id)}/audit-logs`,{method:'DELETE',body:JSON.stringify({confirm:expected})});status('auditStatus',t('audit.removed',{n:result.removed}));loadAudit()}catch(e){status('auditStatus',e.message,true)}}
 async function login(){try{status('loginStatus','');const data=await api('/api/login',{method:'POST',body:JSON.stringify({username:$('username').value.trim(),password:$('password').value})});sessionStorage.setItem(TOKEN_KEY,data.token);$('password').value='';$('loginCard').classList.add('hidden');$('app').classList.remove('hidden');await loadSites()}catch(e){status('loginStatus',e.message,true)}}
-$('loginButton').onclick=login;$('password').onkeydown=e=>{if(e.key==='Enter')login()};$('logoutButton').onclick=()=>{sessionStorage.removeItem(TOKEN_KEY);location.reload()};$('addSiteButton').onclick=()=>openSite();$('addRuleButton').onclick=()=>addRule();$('siteSave').onclick=saveSite;$('captchaStatusButton').onclick=checkCaptchaStatus;$('globalButton').onclick=loadGlobal;$('globalSave').onclick=saveGlobal;$('analyticsRefresh').onclick=loadAnalytics;$('analyticsExport').onclick=exportVisitors;$('auditRefresh').onclick=loadAudit;$('auditFilter').onclick=loadAudit;$('auditClear').onclick=clearAudit;$('analyticsSite').onchange=e=>{state.selectedSiteId=e.target.value;loadAnalytics()};$('auditSite').onchange=e=>{state.selectedSiteId=e.target.value;loadAudit()};document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>showModal(b.dataset.close,false));$('helpBack').onclick=()=>{switchTab('sites');if(guideReturnModal){showModal(guideReturnModal,true);guideReturnModal=''}};document.querySelectorAll('[data-guide]').forEach(button=>button.onclick=()=>{guideReturnModal=button.dataset.guide;showModal(guideReturnModal,false);switchTab('help')});$('addResponseRuleButton').onclick=()=>addResponseRule();$('addPaymentPopupRuleButton').onclick=addPaymentPopupRule;$('addVmqCheckoutRuleButton').onclick=addVmqCheckoutRule;$('globalLanguage').onchange=e=>{LANG=e.target.value==='zh'?'zh':'en';localStorage.setItem('proxyAdminLang',LANG);applyLanguage()};applyLanguage();if(token()){ $('loginCard').classList.add('hidden');$('app').classList.remove('hidden');loadSites().catch(()=>{sessionStorage.removeItem(TOKEN_KEY);location.reload()})}
+$('loginButton').onclick=login;$('password').onkeydown=e=>{if(e.key==='Enter')login()};$('logoutButton').onclick=()=>{sessionStorage.removeItem(TOKEN_KEY);location.reload()};$('addSiteButton').onclick=()=>openSite();$('addRuleButton').onclick=()=>addRule();$('siteSave').onclick=saveSite;$('captchaStatusButton').onclick=checkCaptchaStatus;$('siteMonitorCheck').onclick=checkMonitorNow;$('siteMonitorTest').onclick=testMonitorNotify;$('sitePaymentRefresh').onclick=loadPaymentRecent;$('sitePaymentAdapter').onchange=applyPaymentAdapterDefaults;$('globalButton').onclick=loadGlobal;$('globalSave').onclick=saveGlobal;$('analyticsRefresh').onclick=loadAnalytics;$('analyticsExport').onclick=exportVisitors;$('auditRefresh').onclick=loadAudit;$('auditFilter').onclick=loadAudit;$('auditClear').onclick=clearAudit;$('analyticsSite').onchange=e=>{state.selectedSiteId=e.target.value;loadAnalytics()};$('auditSite').onchange=e=>{state.selectedSiteId=e.target.value;loadAudit()};document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>showModal(b.dataset.close,false));$('helpBack').onclick=()=>{switchTab('sites');if(guideReturnModal){showModal(guideReturnModal,true);guideReturnModal=''}};document.querySelectorAll('[data-guide]').forEach(button=>button.onclick=()=>{guideReturnModal=button.dataset.guide;showModal(guideReturnModal,false);switchTab('help')});$('addResponseRuleButton').onclick=()=>addResponseRule();$('addPaymentPopupRuleButton').onclick=addPaymentPopupRule;$('addVmqCheckoutRuleButton').onclick=addVmqCheckoutRule;$('globalLanguage').onchange=e=>{LANG=e.target.value==='zh'?'zh':'en';localStorage.setItem('proxyAdminLang',LANG);applyLanguage()};applyLanguage();if(token()){ $('loginCard').classList.add('hidden');$('app').classList.remove('hidden');loadSites().catch(()=>{sessionStorage.removeItem(TOKEN_KEY);location.reload()})}
 </script>
 <script src="/__ih/callback/admin.js"></script>
 </body></html>

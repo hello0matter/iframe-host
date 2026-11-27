@@ -70,6 +70,39 @@
         "ready_message": "",
         "result_ttl_seconds": 120
       },
+      "monitor": {
+        "enabled": false,
+        "path": "/purchase",
+        "mode": "auto",
+        "pattern": "",
+        "interval_seconds": 300,
+        "timeout_seconds": 15,
+        "notify_on_first_run": false,
+        "notify_on_error": true,
+        "include_assets": true,
+        "pushplus_token_env": "IH_PUSHPLUS_TOKEN",
+        "title_template": "Original site changed: {site}"
+      },
+      "payment": {
+        "enabled": false,
+        "adapter": "generic",
+        "capture_enabled": false,
+        "capture_url_pattern": "^/api/v1/payment/orders(?:[?#]|$)",
+        "capture_match_mode": "regex",
+        "field_map": {
+          "order_ref": "order_ref",
+          "amount": "amount",
+          "qr_content": "qr_content",
+          "expires_at": "expires_at",
+          "channel": "channel",
+          "currency": "currency"
+        },
+        "require_user_approval": true,
+        "auto_dispatch": false,
+        "default_execution": "qr_display",
+        "device_id": "",
+        "device_token_env": "IH_DEVICE_AGENT_TOKEN"
+      },
       "intercept": {
         "enabled": false,
         "url_pattern": "^/api/login",

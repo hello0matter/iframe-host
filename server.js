@@ -13,6 +13,9 @@ const { normalizeCaptcha, createCaptchaService, injectCaptcha, CaptchaError } = 
 const { normalizeApiProxy, matchesApiProxy } = require('./api-proxy');
 const { normalizeCallback, createCallbackService } = require('./callback-service');
 const { mountCallbackRoutes, injectCallbackPage } = require('./callback-routes');
+const { normalizeSiteMonitor, createSiteMonitorService } = require('./site-monitor');
+const { normalizePaymentConfig, createPaymentService } = require('./payment-service');
+const { mountPaymentRoutes, injectPaymentCapture } = require('./payment-routes');
 const { spawnSync } = require("child_process");
 
 const ROOT = __dirname;
@@ -879,6 +882,8 @@ function normalizeSite(raw, index = 0) {
     captcha: normalizeCaptcha(source.captcha),
     apiProxy: normalizeApiProxy(source.api_proxy),
     externalCallback: normalizeCallback(source.external_callback),
+    monitor: normalizeSiteMonitor(source.monitor, tu.toString()),
+    payment: normalizePaymentConfig(source.payment),
   };
 }
 
@@ -942,6 +947,8 @@ function serializeSite(site) {
     captcha: site.captcha,
     api_proxy: site.apiProxy,
     external_callback: site.externalCallback,
+    monitor: site.monitor,
+    payment: site.payment,
   };
 }
 
@@ -1823,7 +1830,7 @@ async function proxyRequest(site, req, res, upstreamPath, auditMaxBodyBytes, adm
     if (responseContentType.toLowerCase().includes("text/html")) {
       outHeaders["cache-control"] = "no-store";
       const captchaTicket = captchaService.issue(config, req, outHeaders);
-      return bufferAndRewrite(proxyRes, res, outHeaders, text => injectCallbackPage(injectCaptcha(applyBodyRules(rewriteHtml(text, origin, prefix, rules, adminPath, config.id)), config, captchaTicket),config), (body, representation) => {
+      return bufferAndRewrite(proxyRes, res, outHeaders, text => injectPaymentCapture(injectCallbackPage(injectCaptcha(applyBodyRules(rewriteHtml(text, origin, prefix, rules, adminPath, config.id)), config, captchaTicket), config), config), (body, representation) => {
         cacheFallback(body);
         finishAudit(body, representation);
       });
@@ -1918,6 +1925,15 @@ function main() {
 
   const callbackService = createCallbackService({ stateFile: process.env.CALLBACK_STATE_FILE || path.join(path.dirname(CONFIG_FILE), 'callback-state.json'), getSite: id => config.sites.find(s => s.id === id) });
   mountCallbackRoutes(app, { service: callbackService, adminBase, ensureAuth, getSites: () => config.sites });
+  const paymentService = createPaymentService({
+    stateFile: process.env.PAYMENT_STATE_FILE || path.join(path.dirname(CONFIG_FILE), 'payment-state.json'),
+    getSites: () => config.sites,
+  });
+  mountPaymentRoutes(app, { service: paymentService, adminBase, ensureAuth, getSites: () => config.sites });
+  const monitorService = createSiteMonitorService({
+    stateFile: process.env.SITE_MONITOR_STATE_FILE || path.join(path.dirname(CONFIG_FILE), 'site-monitor-state.json'),
+    getSites: () => config.sites,
+  });
 
   app.get('/__ih/captcha/client.js', (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -2066,6 +2082,7 @@ function main() {
       const next = normalizeConfig(raw);
       writeConfig(next);
       config = next;
+      monitorService.wake();
       res.status(201).json({ ok: true, site: toPublicSite(getSite(config, id)) });
     } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
   });
@@ -2080,6 +2097,26 @@ function main() {
     if (site) res.json({ ok: true, data: captchaService.status(site) });
   });
 
+  app.get(`${adminBase}/api/sites/:siteId/monitor/status`, ensureAuth, (req, res) => {
+    const site = siteFromRequest(config, req, res);
+    if (!site) return;
+    res.json({ ok: true, data: monitorService.status(site.id) });
+  });
+
+  app.post(`${adminBase}/api/sites/:siteId/monitor/check`, ensureAuth, async (req, res) => {
+    const site = siteFromRequest(config, req, res);
+    if (!site) return;
+    try { res.json({ ok: true, data: await monitorService.check(site.id, { force: true }) }); }
+    catch (error) { res.status(409).json({ ok: false, message: error.message }); }
+  });
+
+  app.post(`${adminBase}/api/sites/:siteId/monitor/test-notify`, ensureAuth, async (req, res) => {
+    const site = siteFromRequest(config, req, res);
+    if (!site) return;
+    try { res.json({ ok: true, data: await monitorService.testNotify(site.id) }); }
+    catch (error) { res.status(409).json({ ok: false, message: error.message }); }
+  });
+
   app.put(`${adminBase}/api/sites/:siteId`, ensureAuth, json, (req, res) => {
     try {
       const id = parseSiteId(req.params.siteId);
@@ -2087,6 +2124,7 @@ function main() {
       writeConfig(next);
       config = next;
       callbackService.wake();
+      monitorService.wake();
       res.json({ ok: true, site: toPublicSite(getSite(config, id)) });
     } catch (e) { res.status(400).json({ ok: false, message: e.message }); }
   });
@@ -2212,9 +2250,10 @@ function main() {
   const server = app.listen(config.port, config.bindHost, () => {
     console.log(`Listening ${config.bindHost}:${config.port}  sites: ${config.sites.map(site => `${site.name} (${site.proxyPrefix || "/"})`).join(", ")}  admin: ${adminBase}`);
   });
+  monitorService.start();
 
-  process.on("SIGTERM", () => server.close(() => process.exit(0)));
-  process.on("SIGINT", () => server.close(() => process.exit(0)));
+  process.on("SIGTERM", () => { monitorService.stop(); server.close(() => process.exit(0)); });
+  process.on("SIGINT", () => { monitorService.stop(); server.close(() => process.exit(0)); });
 }
 
 try { main(); } catch (e) { console.error(e.message); process.exit(1); }

@@ -17,3 +17,7 @@ Thumbs.db
 
 callback-state.json
 callback-state.json.next
+payment-state.json
+payment-state.json.*
+site-monitor-state.json
+site-monitor-state.json.*

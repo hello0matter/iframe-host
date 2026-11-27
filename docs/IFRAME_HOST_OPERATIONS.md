@@ -292,6 +292,19 @@ Linux 服务通过直连访问 `https://api.2captcha.com`，不使用 Windows �
 
 `/666` 实测还需要 SPA 路由基路径适配：当前上游构建含 `history:qr("/")`，站点 literal 替换为 `history:qr("/666/")` 后才会停留在正确登录路由。此规则是特定构建的站点配置，不是通用编译产物规则；上游升级后需要重新核对，不能声称对所有 Vue 站点自动适配。
 
+## 原站监控与支付捕获（2026-11-27）
+
+后台「站点 → 编辑站点」新增两个默认关闭的区块：
+
+- **原站监控**：按间隔抓取原站路径，比较指纹，变化时用 PushPlus 推送。适合发现 8888ok 等原站前端 bundle 更新。示例：路径 `/purchase`、模式 `auto`、间隔 300 秒。Token 只放服务器环境变量（默认 `IH_PUSHPLUS_TOKEN`），后台只填变量名。
+- **支付捕获**：页面注入 `/__ih/payment/capture.js`，匹配下单 JSON 后创建支付任务。适配器支持 `generic`、`xp_pay`、`vmq`。8888ok 捕获规则：`^/api/v1/payment/orders(?:[?#]|$)`，订单号 `out_trade_no`，金额 `pay_amount`，支付页 `pay_url`。
+
+状态文件默认是 `/etc/iframe-host/site-monitor-state.json` 和 `/etc/iframe-host/payment-state.json`。手机助手 token 默认 `IH_DEVICE_AGENT_TOKEN`，站点可用 `payment.device_token_env` 覆盖。
+
+安全边界：不输入支付密码、不点最终付款、到账必须订单号与金额同时匹配，否则进入 `needs_review`。
+
+完整说明、字段映射和手机助手 curl 示例见 `docs/SITE_MONITOR_AND_PAYMENTS.md`；登录后台的「使用说明」里也有同样内容。
+
 ## 本机 SSH 配置
 
 ```powershell
