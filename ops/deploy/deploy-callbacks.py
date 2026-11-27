@@ -40,7 +40,11 @@ install_env.update({'npm_config_proxy':'','npm_config_https_proxy':''})
 installed=subprocess.run(['npm','ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],cwd=stage,env=install_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=180)
 if installed.returncode:raise RuntimeError('Staged npm ci failed; running service was not changed')
 smoke="require('./callback-service').runBackend({code:'return input.value+1;',timeout_ms:500},{input:{value:1},event:{},previous:[]}).then(v=>{if(v!==2)process.exit(1)}).catch(()=>process.exit(1))"
-subprocess.run(['node','-e',smoke],cwd=stage,env=install_env,check=True,timeout=15,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+for attempt in range(3):
+    smoke_run=subprocess.run(['node','-e',smoke],cwd=stage,env=install_env,timeout=30,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    if smoke_run.returncode==0:break
+    time.sleep(1)
+if smoke_run.returncode:raise RuntimeError('Staged JS smoke test failed: '+(smoke_run.stderr or b'').decode('utf-8','replace')[-800:])
 print('Staged dependencies installed directly; isolated JS smoke test passed.',flush=True)
 def call(url,data=None,token=None):
     headers={'Content-Type':'application/json'}
